@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Control demos</title>
+<style>
+  :root{
+    --bg:#FBFAF8; --panel:#FFFFFF; --ink:#1F2328; --muted:#6E737A;
+    --line:#E4E2DD; --soft:#F4F2EE; --blue:#4E74A6;
+    --gutter: max(16px, env(safe-area-inset-left));
+    --gutter-r: max(16px, env(safe-area-inset-right));
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#15171A; --panel:#1C1F23; --ink:#E9E8E4; --muted:#9BA1A8;
+      --line:#2C3037; --soft:#22262B; --blue:#84A6D6;
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#15171A; --panel:#1C1F23; --ink:#E9E8E4; --muted:#9BA1A8;
+    --line:#2C3037; --soft:#22262B; --blue:#84A6D6;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;
+    font-size:15px; line-height:1.5; -webkit-text-size-adjust:100%;
+  }
+  .wrap{max-width:720px; margin:0 auto; padding:44px var(--gutter-r) 48px var(--gutter);}
+  h1{font-size:23px; font-weight:600; margin:0 0 6px; letter-spacing:-.01em}
+  .sub{color:var(--muted); font-size:14px; margin:0 0 28px}
+  i.v{font-family:Georgia,"Times New Roman",serif; font-style:italic}
+  a.demo{
+    display:block; text-decoration:none; color:inherit;
+    background:var(--panel); border:1px solid var(--line); border-radius:10px;
+    padding:16px 18px; margin-bottom:12px;
+  }
+  a.demo:hover{border-color:var(--blue)}
+  a.demo:focus-visible{outline:2px solid var(--blue); outline-offset:2px}
+  a.demo .lec{
+    font-size:11px; text-transform:uppercase; letter-spacing:.07em;
+    color:var(--muted); font-weight:600;
+  }
+  a.demo h2{font-size:17px; font-weight:600; margin:2px 0 5px; color:var(--blue)}
+  a.demo p{margin:0; color:var(--muted); font-size:13.5px}
+  footer{margin-top:26px; color:var(--muted); font-size:13px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Control demos</h1>
+  <p class="sub">Interactive companions to Control Systems 227-0103-00, ETH Z&uuml;rich.</p>
+
+  <a class="demo" href="lqr-tuner/">
+    <div class="lec">Lecture 7 &middot; optimal control</div>
+    <h2>LQR tuner for the planar drone</h2>
+    <p>Move any diagonal entry of <i class="v">Q</i> or <i class="v">R</i> and the gain is
+       re-solved from the Riccati equation, so the drone you watch is always flying the
+       optimal controller for the cost you just wrote down.</p>
+  </a>
+
+  <a class="demo" href="kalman-tuner/">
+    <div class="lec">Lecture 8 &middot; optimal estimation</div>
+    <h2>Kalman tuner for the car with two sensors</h2>
+    <p>Change what the filter believes about <i class="v">Q</i><sub><i class="v">w</i></sub> and
+       <i class="v">R</i><sub><i class="v">v</i></sub> while the car, the road, and the readings
+       stay one fixed realization, and watch the gap open between the accuracy the filter
+       promises itself and the accuracy it delivers.</p>
+  </a>
+
+  <footer>
+    Each demo is a single self-contained HTML file. It runs offline in the browser, with
+    nothing to install.
+  </footer>
+</div>
+</body>
+</html>
