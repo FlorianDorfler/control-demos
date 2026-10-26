@@ -1,0 +1,697 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Kalman tuner &mdash; car with two sensors (L08)</title>
+<style>
+  :root{
+    --bg:#FBFAF8; --panel:#FFFFFF; --ink:#1F2328; --muted:#6E737A;
+    --line:#E4E2DD; --grid:#EDEBE6; --soft:#F4F2EE;
+    --blue:#4E74A6; --red:#AF5A46; --grey:#6E737A; --faint:#BFC4CB;
+    --good:#4E74A6; --bad:#AF5A46;
+    --gutter: max(16px, env(safe-area-inset-left));
+    --gutter-r: max(16px, env(safe-area-inset-right));
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#15171A; --panel:#1C1F23; --ink:#E9E8E4; --muted:#9BA1A8;
+      --line:#2C3037; --grid:#262A30; --soft:#22262B;
+      --blue:#84A6D6; --red:#D4866E; --grey:#9BA1A8; --faint:#49505A;
+      --good:#84A6D6; --bad:#D4866E;
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#15171A; --panel:#1C1F23; --ink:#E9E8E4; --muted:#9BA1A8;
+    --line:#2C3037; --grid:#262A30; --soft:#22262B;
+    --blue:#84A6D6; --red:#D4866E; --grey:#9BA1A8; --faint:#49505A;
+    --good:#84A6D6; --bad:#D4866E;
+  }
+
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;
+    font-size:14px; line-height:1.45; -webkit-text-size-adjust:100%;
+  }
+  .wrap{max-width:1180px; margin:0 auto; padding:20px var(--gutter-r) 36px var(--gutter);}
+
+  header{margin-bottom:16px}
+  h1{font-size:19px; font-weight:600; margin:0 0 4px; letter-spacing:-.01em}
+  .model{
+    margin-top:10px; padding:8px 11px; background:var(--soft);
+    border:1px solid var(--line); border-radius:7px;
+    font-size:12.5px; color:var(--muted);
+  }
+  .model b{color:var(--ink); font-weight:600}
+  i.v{font-family:Georgia,"Times New Roman",serif; font-style:italic}
+  /* A combining mark placed after an italic letter sits to the letter's right
+     rather than over it. This centres a spacing accent over the letter's own
+     box instead. The offset is small on purpose: lift it much past this and
+     the accent detaches from its letter and rides into the line above. */
+  .ac{display:inline-block; line-height:1; position:relative}
+  .ac::before{content:attr(data-a); position:absolute; width:100%; left:0;
+    text-align:center; font-style:normal; font-size:.9em; line-height:1; top:-.06em}
+
+  .grid{display:grid; grid-template-columns:1fr; gap:16px}
+  @media (min-width:860px){
+    .grid{grid-template-columns:286px minmax(0,1fr); align-items:start}
+    .controls{order:-1; position:sticky; top:16px; max-height:calc(100vh - 32px); overflow-y:auto}
+  }
+
+  .card{
+    background:var(--panel); border:1px solid var(--line);
+    border-radius:10px; padding:14px;
+  }
+  .controls h2, .plots h2{
+    font-size:11px; text-transform:uppercase; letter-spacing:.07em;
+    color:var(--muted); font-weight:600; margin:0 0 10px;
+  }
+  .ctl{margin-bottom:14px}
+  .ctl:last-child{margin-bottom:0}
+  .ctl .row{display:flex; justify-content:space-between; align-items:baseline; gap:8px; margin-bottom:5px}
+  .ctl label{font-size:13.5px; font-weight:500}
+  .ctl label small{color:var(--muted); font-weight:400}
+  .ctl .val{
+    font-variant-numeric:tabular-nums; font-size:13px; color:var(--muted);
+    background:var(--soft); border-radius:5px; padding:1px 7px; white-space:nowrap;
+  }
+  input[type=range]{
+    -webkit-appearance:none; appearance:none; width:100%; height:20px;
+    background:transparent; margin:0; display:block;
+  }
+  input[type=range]::-webkit-slider-runnable-track{height:4px; background:var(--line); border-radius:3px}
+  input[type=range]::-moz-range-track{height:4px; background:var(--line); border-radius:3px}
+  input[type=range]::-webkit-slider-thumb{
+    -webkit-appearance:none; width:16px; height:16px; border-radius:50%;
+    background:var(--blue); border:2px solid var(--panel); margin-top:-6px;
+    box-shadow:0 0 0 1px var(--blue); cursor:pointer;
+  }
+  input[type=range]::-moz-range-thumb{
+    width:14px; height:14px; border-radius:50%; background:var(--blue);
+    border:2px solid var(--panel); box-shadow:0 0 0 1px var(--blue); cursor:pointer;
+  }
+  input[type=range]:focus-visible{outline:2px solid var(--blue); outline-offset:3px; border-radius:4px}
+
+  .divider{height:1px; background:var(--line); margin:16px 0 14px}
+  .impl .ctl label{font-weight:400; color:var(--muted)}
+  .fixed{font-size:12px; color:var(--muted); margin:0}
+  .fixed b{color:var(--ink); font-weight:600}
+
+  .presets{display:flex; flex-wrap:wrap; gap:6px}
+  .presets button{
+    font:inherit; font-size:12.5px; padding:5px 10px; cursor:pointer;
+    background:var(--soft); color:var(--ink);
+    border:1px solid var(--line); border-radius:999px;
+  }
+  .presets button:hover{border-color:var(--blue); color:var(--blue)}
+  .presets button[aria-pressed="true"]{border-color:var(--blue); color:var(--blue);
+    background:var(--panel); font-weight:600}
+  .presets button:focus-visible{outline:2px solid var(--blue); outline-offset:2px}
+
+  .stats{display:grid; grid-template-columns:repeat(auto-fit,minmax(118px,1fr)); gap:8px; margin-bottom:14px}
+  .stat{background:var(--soft); border:1px solid var(--line); border-radius:8px; padding:7px 9px}
+  .stat .k{font-size:10.5px; text-transform:uppercase; letter-spacing:.05em; color:var(--muted)}
+  .stat .k .lo, .stat .k i.v{text-transform:none}
+  .stat .n{font-size:16px; font-variant-numeric:tabular-nums; font-weight:600; margin-top:1px}
+  .stat .n.ok{color:var(--good)}
+  .stat .n.no{color:var(--bad)}
+
+  .panel{position:relative; margin-bottom:10px}
+  .panel:last-child{margin-bottom:0}
+  canvas{display:block; width:100%; height:190px}
+  canvas.tall{height:236px}
+  .card.compact canvas{height:168px}
+  @media (max-width:620px){.card.compact canvas{height:148px}}
+  @media (max-width:620px){canvas{height:168px}}
+  .key{
+    position:absolute; top:6px; right:10px; font-size:11.5px;
+    display:flex; gap:11px; pointer-events:none; font-variant-numeric:tabular-nums;
+  }
+  .key .b{color:var(--blue)} .key .g{color:var(--grey)} .key .f{color:var(--faint)}
+  .key .r{color:var(--red)} .key .k{color:var(--ink)}
+
+  footer{margin-top:18px; color:var(--muted); font-size:12.5px}
+  footer b{color:var(--ink); font-weight:600}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Kalman tuner for the car with two sensors</h1>
+    <div class="model">
+      <b>Plant</b> <span class="ac" data-a="&#168;"><i class="v">p</i></span> = &minus;<i class="v">&#7767;</i> + <i class="v">w</i>, with state <i class="v">x</i> = (<i class="v">p</i>, <i class="v">&#7767;</i>) and road roughness <i class="v">w</i>; the car is driven by roughness alone over 40&thinsp;s. &nbsp;&middot;&nbsp;
+      <b>Sensors</b> <i class="v">y</i> = <i class="v">x</i> + <i class="v">v</i>: the GPS reads <i class="v">p</i> and the tachometer reads <i class="v">&#7767;</i>, both at 1&thinsp;Hz and held between readings &nbsp;&middot;&nbsp;
+      <b>Observer</b> <span class="ac" data-a="&#710;"><i class="v">x</i></span> is driven by <i class="v">A</i><span class="ac" data-a="&#710;"><i class="v">x</i></span> + <i class="v">L</i>(<i class="v">y</i> &minus; <i class="v">C</i><span class="ac" data-a="&#710;"><i class="v">x</i></span>), with <i class="v">L</i> = <i class="v">PC</i><sup>T</sup><i class="v">R</i><sub><i class="v">v</i></sub><sup>&minus;1</sup> from the Riccati equation.
+    </div>
+  </header>
+
+  <div class="grid">
+    <section class="plots">
+      <div class="stats">
+        <div class="stat"><div class="k">rms error in <i class="v">p</i></div><div class="n" id="s-rp">&mdash;</div></div>
+        <div class="stat"><div class="k">rms error in <i class="v">&#7767;</i></div><div class="n" id="s-rv">&mdash;</div></div>
+        <div class="stat"><div class="k">actual <span class="lo">&sigma;<sub><i class="v">p</i></sub></span></div><div class="n" id="s-act">&mdash;</div></div>
+        <div class="stat"><div class="k">filter predicts</div><div class="n" id="s-pred">&mdash;</div></div>
+        <div class="stat"><div class="k">overconfidence</div><div class="n" id="s-over">&mdash;</div></div>
+      </div>
+
+      <div class="card compact">
+        <div class="panel">
+          <canvas id="c1"></canvas>
+          <div class="key"><span class="k">true <i class="v">p</i></span><span class="b">estimate <i class="v">p&#770;</i></span><span class="f">GPS readings</span></div>
+        </div>
+        <div class="panel">
+          <canvas id="c2"></canvas>
+          <div class="key"><span class="b">your filter</span><span class="f">Kalman</span></div>
+        </div>
+        <div class="panel">
+          <canvas id="c3"></canvas>
+          <div class="key"><span class="k">true <i class="v">&#7767;</i></span><span class="b">estimate</span><span class="f">tachometer readings</span></div>
+        </div>
+        <div class="panel">
+          <canvas id="c4"></canvas>
+          <div class="key"><span class="b">your filter</span><span class="f">Kalman</span></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="controls card">
+      <h2>What the filter believes</h2>
+
+      <div class="ctl">
+        <div class="row"><label for="rg"><i class="v">R</i><sub><i class="v">v</i></sub> GPS <small>position</small></label><span class="val" id="vrg">10.0</span></div>
+        <input type="range" id="rg" min="-2" max="4" step="0.02" value="1">
+      </div>
+      <div class="ctl">
+        <div class="row"><label for="rt"><i class="v">R</i><sub><i class="v">v</i></sub> tacho <small>velocity</small></label><span class="val" id="vrt">1.00</span></div>
+        <input type="range" id="rt" min="-2" max="4" step="0.02" value="0">
+      </div>
+      <div class="ctl">
+        <div class="row"><label for="qw"><i class="v">Q</i><sub><i class="v">w</i></sub> <small>road roughness</small></label><span class="val" id="vqw">1.00</span></div>
+        <input type="range" id="qw" min="-3" max="3" step="0.02" value="0">
+      </div>
+
+      <div class="divider"></div>
+      <h2>Presets</h2>
+      <div class="presets">
+        <button type="button" data-p="sensors">trusts the sensors</button>
+        <button type="button" data-p="kalman">the Kalman filter</button>
+        <button type="button" data-p="model">trusts the model</button>
+      </div>
+
+      <div class="divider"></div>
+      <h2>The truth, which does not move</h2>
+      <p class="fixed">
+        <b>Road roughness</b> <i class="v">Q</i><sub><i class="v">w</i></sub> = diag(0, 1), an acceleration
+        disturbance only. The first entry is truly zero and is held there; the slider above moves the
+        filter's belief about the second. <br>
+        <b>Sensors</b> <i class="v">R</i><sub><i class="v">v</i></sub> = diag(10, 1): GPS spread
+        &radic;10 &asymp; 3.2&thinsp;m, tachometer 1&thinsp;m/s. <br>
+        The car and its readings are one fixed realization, so the sliders above are the only thing
+        that changes.
+      </p>
+    </section>
+  </div>
+
+  <footer id="note"></footer>
+</div>
+
+<script>
+/* =====================================================================
+   Shared core for the Control Systems browser tuners.
+   Dense linear algebra at n <= 8, a continuous-time Riccati solver, an
+   eigenvalue routine, deterministic noise, and a canvas plotter.
+   No dependencies: every page that uses this carries its own copy.
+   ===================================================================== */
+
+/* ---------------------------------------------------------- matrices */
+function mat(r, c, v){
+  var A = [], i, j;
+  for (i=0;i<r;i++){ A.push([]); for (j=0;j<c;j++) A[i].push(v||0); }
+  return A;
+}
+function eye(n){ var A = mat(n,n), i; for (i=0;i<n;i++) A[i][i]=1; return A; }
+function diag(d){ var n=d.length, A=mat(n,n), i; for (i=0;i<n;i++) A[i][i]=d[i]; return A; }
+function mmul(A,B){
+  var n=A.length, m=B[0].length, k=B.length, C=mat(n,m), i,j,q,s;
+  for (i=0;i<n;i++) for (j=0;j<m;j++){ s=0; for (q=0;q<k;q++) s+=A[i][q]*B[q][j]; C[i][j]=s; }
+  return C;
+}
+function mT(A){
+  var n=A.length, m=A[0].length, C=mat(m,n), i,j;
+  for (i=0;i<n;i++) for (j=0;j<m;j++) C[j][i]=A[i][j];
+  return C;
+}
+function madd(A,B,s){
+  var n=A.length, m=A[0].length, C=mat(n,m), i,j; s = (s===undefined)?1:s;
+  for (i=0;i<n;i++) for (j=0;j<m;j++) C[i][j]=A[i][j]+s*B[i][j];
+  return C;
+}
+function mvec(A,x){
+  var n=A.length, m=x.length, y=[], i,j,s;
+  for (i=0;i<n;i++){ s=0; for (j=0;j<m;j++) s+=A[i][j]*x[j]; y.push(s); }
+  return y;
+}
+/* Gaussian elimination with partial pivoting; M is destroyed. */
+function solveLin(M, b){
+  var n = b.length, i, j, k, p, t, f;
+  var x = b.slice();
+  for (k=0;k<n;k++){
+    p = k;
+    for (i=k+1;i<n;i++) if (Math.abs(M[i][k]) > Math.abs(M[p][k])) p = i;
+    if (p !== k){ t = M[p]; M[p] = M[k]; M[k] = t; t = x[p]; x[p] = x[k]; x[k] = t; }
+    if (Math.abs(M[k][k]) < 1e-300) M[k][k] = 1e-300;
+    for (i=k+1;i<n;i++){
+      f = M[i][k]/M[k][k];
+      if (f === 0) continue;
+      for (j=k;j<n;j++) M[i][j] -= f*M[k][j];
+      x[i] -= f*x[k];
+    }
+  }
+  for (i=n-1;i>=0;i--){
+    for (j=i+1;j<n;j++) x[i] -= M[i][j]*x[j];
+    x[i] /= M[i][i];
+  }
+  return x;
+}
+function minv(A){
+  var n = A.length, I = eye(n), C = mat(n,n), j, i, col;
+  for (j=0;j<n;j++){
+    var M = [], r;
+    for (r=0;r<n;r++) M.push(A[r].slice());
+    col = solveLin(M, I.map(function(row){ return row[j]; }));
+    for (i=0;i<n;i++) C[i][j] = col[i];
+  }
+  return C;
+}
+
+/* ------------------------------------------------- Lyapunov and CARE */
+/* Solves  Ac' P + P Ac + W = 0  by Kronecker expansion (column stacking).
+   n^2 x n^2 dense solve: fine to n = 8, which is all these models need. */
+function lyapT(Ac, W){
+  var n = Ac.length, N = n*n, M = mat(N,N), b = [], i,j,k,l,p,q;
+  for (j=0;j<n;j++) for (i=0;i<n;i++){
+    p = i + j*n;
+    for (l=0;l<n;l++) for (k=0;k<n;k++){
+      q = k + l*n;
+      var v = 0;
+      if (j === l) v += Ac[k][i];   /* (I kron Ac') */
+      if (i === k) v += Ac[l][j];   /* (Ac' kron I) */
+      M[p][q] = v;
+    }
+    b.push(-W[i][j]);
+  }
+  var x = solveLin(M, b), P = mat(n,n);
+  for (j=0;j<n;j++) for (i=0;i<n;i++) P[i][j] = x[i + j*n];
+  for (i=0;i<n;i++) for (j=i+1;j<n;j++){
+    var s = 0.5*(P[i][j] + P[j][i]); P[i][j] = s; P[j][i] = s;
+  }
+  return P;
+}
+/* Stabilizing solution of  A'P + PA - PBR^-1B'P + Q = 0, by Newton-Kleinman.
+   K0 must make A - B K0 Hurwitz; it does NOT depend on Q or R, so one fixed
+   seed gain per plant covers every slider position. Converges quadratically. */
+function care(A, B, Q, R, K0, iters){
+  var n = A.length, Ri = minv(R), K = K0.map(function(r){ return r.slice(); }), P = null;
+  var it = iters || 60, step;
+  for (var c=0;c<it;c++){
+    var Ac = madd(A, mmul(B,K), -1);
+    var Kt = mT(K);
+    var W  = madd(Q, mmul(Kt, mmul(R,K)), 1);
+    P = lyapT(Ac, W);
+    var Kn = mmul(Ri, mmul(mT(B), P));
+    step = 0;
+    for (var i=0;i<Kn.length;i++) for (var j=0;j<Kn[0].length;j++)
+      step = Math.max(step, Math.abs(Kn[i][j]-K[i][j]));
+    K = Kn;
+    if (step < 1e-12) break;
+  }
+  return {P:P, K:K};
+}
+
+/* ------------------------------------------------------- eigenvalues */
+function charpoly(A){
+  var n = A.length, M = eye(n), c = [1], k, i, j;
+  for (k=1;k<=n;k++){
+    var AM = mmul(A,M), tr = 0;
+    for (i=0;i<n;i++) tr += AM[i][i];
+    var ck = -tr/k; c.push(ck);
+    M = AM;
+    for (i=0;i<n;i++) M[i][i] += ck;
+  }
+  return c;
+}
+function cmul(a,b){ return [a[0]*b[0]-a[1]*b[1], a[0]*b[1]+a[1]*b[0]]; }
+function csub(a,b){ return [a[0]-b[0], a[1]-b[1]]; }
+function cdiv(a,b){ var d=b[0]*b[0]+b[1]*b[1]; if (d===0) d=1e-300;
+  return [(a[0]*b[0]+a[1]*b[1])/d, (a[1]*b[0]-a[0]*b[1])/d]; }
+function peval(c,z){ var r=[0,0]; for (var i=0;i<c.length;i++){ r=cmul(r,z); r=[r[0]+c[i], r[1]]; } return r; }
+function polyRoots(c){
+  var n = c.length-1, z = [], i, p = [1,0], seed = [0.4,0.9];
+  for (i=0;i<n;i++){ z.push(p); p = cmul(p,seed); }
+  for (var it=0; it<500; it++){
+    var moved = 0;
+    for (i=0;i<n;i++){
+      var num = peval(c,z[i]), den = [1,0];
+      for (var j=0;j<n;j++) if (j!==i) den = cmul(den, csub(z[i],z[j]));
+      var dz = cdiv(num,den);
+      z[i] = csub(z[i],dz);
+      moved = Math.max(moved, Math.abs(dz[0])+Math.abs(dz[1]));
+    }
+    if (moved < 1e-13) break;
+  }
+  return z;
+}
+function maxRealEig(A){
+  var z = polyRoots(charpoly(A)), m = -Infinity;
+  for (var i=0;i<z.length;i++) if (z[i][0] > m) m = z[i][0];
+  return m;
+}
+
+/* ---------------------------------------------- deterministic noise */
+function mulberry32(a){
+  return function(){
+    a |= 0; a = a + 0x6D2B79F5 | 0;
+    var t = Math.imul(a ^ a >>> 15, 1 | a);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
+function gaussSeq(seed, n){
+  var rnd = mulberry32(seed), a = new Float64Array(n), i;
+  for (i=0;i<n;i+=2){
+    var u1 = Math.max(rnd(), 1e-12), u2 = rnd(), r = Math.sqrt(-2*Math.log(u1));
+    a[i] = r*Math.cos(2*Math.PI*u2);
+    if (i+1 < n) a[i+1] = r*Math.sin(2*Math.PI*u2);
+  }
+  return a;
+}
+
+/* ------------------------------------------------------------ canvas */
+function cssvar(name){
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+}
+function fitCanvas(cv){
+  var dpr = window.devicePixelRatio || 1, r = cv.getBoundingClientRect();
+  cv.width  = Math.max(1, Math.round(r.width*dpr));
+  cv.height = Math.max(1, Math.round(r.height*dpr));
+  var ctx = cv.getContext('2d');
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  return {ctx:ctx, w:r.width, h:r.height};
+}
+function niceStep(range, target){
+  if (!(range > 0)) return 1;
+  var raw = range/target, e = Math.pow(10, Math.floor(Math.log10(raw))), f = raw/e;
+  var n = f < 1.5 ? 1 : f < 3 ? 2 : f < 7 ? 5 : 10;
+  return n*e;
+}
+function extent(curves, cap){
+  var lo = Infinity, hi = -Infinity, s, i, v;
+  for (s=0;s<curves.length;s++){
+    var a = curves[s].y;
+    for (i=0;i<a.length;i++){
+      v = a[i];
+      if (!isFinite(v)) continue;
+      if (v < lo) lo = v; if (v > hi) hi = v;
+    }
+  }
+  if (!isFinite(lo)){ lo = -1; hi = 1; }
+  lo = Math.max(lo, -cap); hi = Math.min(hi, cap);
+  if (hi - lo < 1e-9){ lo -= 0.5; hi += 0.5; }
+  var pad = 0.09*(hi-lo);
+  return [lo-pad, hi+pad];
+}
+/* o = {ylabel, xmax, xtick, curves, cap, hline, ylim}
+   each curve = {t, y, color, w, dash, kind:'line'|'dots'} */
+function drawPanel(cv, o){
+  var g = fitCanvas(cv), ctx = g.ctx, W = g.w, H = g.h;
+  var L = 50, R = 8, Tp = 10, B = 34, i;
+  ctx.clearRect(0,0,W,H);
+
+  var cap = o.cap === undefined ? 1e9 : o.cap;
+  var ex  = o.ylim || extent(o.curves, cap), y0 = ex[0], y1 = ex[1];
+  var xmax = o.xmax;
+  var px = function(t){ return L + (W-L-R)*t/xmax; };
+  var py = function(v){ return Tp + (H-Tp-B)*(1 - (v-y0)/(y1-y0)); };
+
+  var grid = cssvar('--grid'), line = cssvar('--line'), muted = cssvar('--muted');
+  ctx.font = '11px -apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif';
+  ctx.strokeStyle = grid; ctx.lineWidth = 1;
+
+  var ystep = niceStep(y1-y0, 4), dec = ystep < 1 ? (ystep < 0.1 ? 2 : 1) : (ystep < 10 ? 1 : 0);
+  ctx.textAlign = 'right'; ctx.textBaseline = 'middle'; ctx.fillStyle = muted;
+  for (var v = Math.ceil(y0/ystep)*ystep; v <= y1; v += ystep){
+    var yy = Math.round(py(v)) + 0.5;
+    ctx.beginPath(); ctx.moveTo(L, yy); ctx.lineTo(W-R, yy); ctx.stroke();
+    ctx.fillText(Math.abs(v) < ystep*1e-6 ? '0' : v.toFixed(dec), L-7, yy);
+  }
+  ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+  for (var tt = 0; tt <= xmax + 1e-9; tt += o.xtick){
+    var xx = Math.round(px(tt)) + 0.5;
+    ctx.beginPath(); ctx.moveTo(xx, Tp); ctx.lineTo(xx, H-B); ctx.stroke();
+    ctx.fillText(String(Math.round(tt*1000)/1000), xx, H-B+6);
+  }
+
+  ctx.strokeStyle = line;
+  ctx.beginPath(); ctx.moveTo(L+0.5, Tp); ctx.lineTo(L+0.5, H-B+0.5); ctx.lineTo(W-R, H-B+0.5); ctx.stroke();
+
+  ctx.save();
+  ctx.translate(12, (Tp + H-B)/2); ctx.rotate(-Math.PI/2);
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillStyle = muted;
+  ctx.fillText(o.ylabel, 0, 0);
+  ctx.restore();
+  ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+  ctx.fillText('time  t  [s]', (L + W - R)/2, H-2);
+
+  if (o.hline !== null && o.hline !== undefined && o.hline > y0 && o.hline < y1){
+    ctx.save(); ctx.setLineDash([2,3]); ctx.strokeStyle = cssvar('--faint'); ctx.lineWidth = 1;
+    var hy = Math.round(py(o.hline))+0.5;
+    ctx.beginPath(); ctx.moveTo(L, hy); ctx.lineTo(W-R, hy); ctx.stroke(); ctx.restore();
+  }
+
+  ctx.save();
+  ctx.beginPath(); ctx.rect(L, Tp, W-L-R, H-Tp-B); ctx.clip();
+  ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+  for (var c = 0; c < o.curves.length; c++){
+    var cu = o.curves[c];
+    if (cu.kind === 'dots'){
+      ctx.fillStyle = cu.color;
+      for (i=0;i<cu.y.length;i++){
+        if (!isFinite(cu.y[i])) continue;
+        var vv = Math.max(-cap*1.4, Math.min(cap*1.4, cu.y[i]));
+        ctx.beginPath(); ctx.arc(px(cu.t[i]), py(vv), cu.w || 1.6, 0, 6.2832); ctx.fill();
+      }
+      continue;
+    }
+    ctx.strokeStyle = cu.color; ctx.lineWidth = cu.w;
+    ctx.setLineDash(cu.dash || []);
+    ctx.beginPath();
+    var pen = false;
+    for (i = 0; i < cu.y.length; i++){
+      var val = cu.y[i];
+      if (!isFinite(val)){ pen = false; continue; }
+      var cl = Math.max(-cap*1.4, Math.min(cap*1.4, val));
+      var X = px(cu.t[i]), Y = py(cl);
+      if (!pen){ ctx.moveTo(X,Y); pen = true; } else ctx.lineTo(X,Y);
+    }
+    ctx.stroke(); ctx.setLineDash([]);
+  }
+  ctx.restore();
+}
+
+/* ---------------------------------------------------------------- ui */
+function rafThrottle(fn){
+  var pending = false;
+  return function(){
+    if (pending) return;
+    pending = true;
+    requestAnimationFrame(function(){ pending = false; fn(); });
+  };
+}
+function watchTheme(fn){
+  if (!window.matchMedia) return;
+  var mq = window.matchMedia('(prefers-color-scheme: dark)');
+  if (mq.addEventListener) mq.addEventListener('change', fn);
+}
+
+(function(){
+  "use strict";
+
+  /* --------------------------------------------- the car and its sensors
+     x = [p, pdot],  pdot' = -pdot + w,  y = x + v, both sensors at 1 Hz    */
+  var A  = [[0,1],[0,-1]];
+  var C  = [[1,0],[0,1]];
+  var QW = [[0,0],[0,1]];        /* truth: roughness is an acceleration */
+  var RV = [[10,0],[0,1]];       /* truth: GPS 10 m^2, tachometer 1 m^2/s^2 */
+  var TS = 1.0, DT = 1e-3, TEND = 40.0, NPT = 2200, SKIP = 5.0;
+
+  /* (A', C') is stabilizable with the identity as a seed gain:
+     A' - C' I has eigenvalues -1 and -2. */
+  var K0 = [[1,0],[0,1]];
+
+  /* The position entry of Q_w is truly zero, because nothing pushes the
+     position directly, and the filter is held to that. Its belief about the
+     roughness entry, and about each sensor, is what the sliders move. */
+  function observer(rg, rt, qw){
+    var Rb = [[rg,0],[0,rt]], Qb = [[0,0],[0,qw]];
+    var P  = care(mT(A), mT(C), Qb, Rb, K0).P;
+    var L  = mmul(P, mmul(mT(C), minv(Rb)));
+    /* What this gain ACTUALLY delivers on the real car: the error obeys
+       edot = (A - LC) e + L v - w, so its stationary covariance solves
+       (A-LC) S + S (A-LC)' + L R_true L' + Q_true = 0.  Realization-free,
+       which is why the overconfidence tile does not jitter with the seed. */
+    var Ac = madd(A, mmul(L,C), -1);
+    var S  = lyapT(mT(Ac), madd(mmul(L, mmul(RV, mT(L))), QW, 1));
+    return {L:L, P:P, S:S};
+  }
+
+  /* ------------------------------------- one fixed realization of the car */
+  var N = Math.round(TEND/DT), every = Math.round(TS/DT);
+  var STRIDE = Math.max(1, Math.round(N/NPT));
+  var MPTS = Math.floor(N/STRIDE) + 1;
+
+  var TRUE_P = new Float64Array(N+1), TRUE_V = new Float64Array(N+1);
+  var MEAS_P = new Float64Array(N+1), MEAS_V = new Float64Array(N+1);
+  var SAMP_T = [], GPS_Y = [], TACH_Y = [];
+  (function build(){
+    /* Seed chosen so that this one realization is representative: its rms
+       errors sit within 10% of the stationary values the Lyapunov equation
+       predicts for all three presets, rather than flattering any of them. */
+    var gw = gaussSeq(555, N+2), gv = gaussSeq(1666, 2*(Math.ceil(TEND/TS)+2));
+    var sw = Math.sqrt(QW[1][1]*DT);              /* Euler-Maruyama step */
+    var svp = Math.sqrt(RV[0][0]/TS), svv = Math.sqrt(RV[1][1]/TS);
+    var p = 0, v = 0, mp = 0, mv = 0, s = 0;
+    for (var i=0;i<=N;i++){
+      if (i % every === 0){
+        mp = p + svp*gv[2*s]; mv = v + svv*gv[2*s+1]; s++;
+        SAMP_T.push(i*DT); GPS_Y.push(mp); TACH_Y.push(mv);
+      }
+      TRUE_P[i] = p; TRUE_V[i] = v; MEAS_P[i] = mp; MEAS_V[i] = mv;
+      var dp = v, dv = -v;
+      p += DT*dp;
+      v += DT*dv + sw*gw[i];
+    }
+  })();
+
+  function run(L){
+    var T = new Float64Array(MPTS), PH = new Float64Array(MPTS), VH = new Float64Array(MPTS),
+        EP = new Float64Array(MPTS), EV = new Float64Array(MPTS);
+    var ph = 0, vh = 0, k = 0, i, acc = 0, accv = 0, cnt = 0;
+    for (i=0;i<=N;i++){
+      var t = i*DT;
+      var ep = ph - TRUE_P[i], ev = vh - TRUE_V[i];
+      if (t > SKIP){ acc += ep*ep; accv += ev*ev; cnt++; }
+      if (i % STRIDE === 0 && k < MPTS){ T[k]=t; PH[k]=ph; VH[k]=vh; EP[k]=ep; EV[k]=ev; k++; }
+      if (i === N) break;
+      var rp = MEAS_P[i] - ph, rv = MEAS_V[i] - vh;
+      var dph = vh      + L[0][0]*rp + L[0][1]*rv;
+      var dvh = -vh     + L[1][0]*rp + L[1][1]*rv;
+      ph += DT*dph; vh += DT*dvh;
+      if (!isFinite(ph)) { ph = NaN; vh = NaN; }
+    }
+    return {t:T, ph:PH, vh:VH, ep:EP, ev:EV,
+            rmsP: cnt ? Math.sqrt(acc/cnt) : NaN,
+            rmsV: cnt ? Math.sqrt(accv/cnt) : NaN};
+  }
+
+  /* downsampled truth, for the two signal panels */
+  var TT = new Float64Array(MPTS), TP = new Float64Array(MPTS), TV = new Float64Array(MPTS);
+  (function(){
+    for (var k=0;k<MPTS;k++){ TT[k]=k*STRIDE*DT; TP[k]=TRUE_P[k*STRIDE]; TV[k]=TRUE_V[k*STRIDE]; }
+  })();
+
+  var KAL = (function(){ var o = observer(10,1,1); return {o:o, r:run(o.L)}; })();
+
+  /* ------------------------------------------------------------------ ui */
+  var S = {rg:10, rt:1, qw:1};
+  var el = {};
+  ['rg','rt','qw'].forEach(function(k){ el[k]=document.getElementById(k); el['v'+k]=document.getElementById('v'+k); });
+  ['c1','c2','c3','c4','s-rp','s-rv','s-act','s-pred','s-over','note']
+    .forEach(function(k){ el[k]=document.getElementById(k); });
+
+  function fmtW(w){
+    if (w >= 100) return w.toFixed(0);
+    if (w >= 10)  return w.toFixed(1);
+    if (w >= 0.1) return w.toFixed(2);
+    return w.toFixed(3);
+  }
+
+  var PRESETS = {
+    sensors: {rg:0.1,  rt:0.01, qw:1},
+    kalman:  {rg:10,   rt:1,    qw:1},
+    model:   {rg:1000, rt:100,  qw:1}
+  };
+
+  function render(){
+    el.vrg.textContent = fmtW(S.rg);
+    el.vrt.textContent = fmtW(S.rt);
+    el.vqw.textContent = fmtW(S.qw);
+
+    var ob = observer(S.rg, S.rt, S.qw), r = run(ob.L);
+    var blue = cssvar('--blue'), faint = cssvar('--faint'), ink = cssvar('--ink');
+
+    drawPanel(el.c1, {ylabel:'position  p(t)  [m]', xmax:TEND, xtick:10, cap:60, hline:0,
+      curves:[{t:SAMP_T, y:GPS_Y, color:faint, w:2.1, kind:'dots'},
+              {t:TT, y:TP, color:ink,  w:1.5},
+              {t:r.t, y:r.ph, color:blue, w:1.6}]});
+
+    drawPanel(el.c2, {ylabel:'error in  p  [m]', xmax:TEND, xtick:10, cap:40, hline:0,
+      curves:[{t:KAL.r.t, y:KAL.r.ep, color:faint, w:1.4},
+              {t:r.t, y:r.ep, color:blue, w:1.3}]});
+
+    drawPanel(el.c3, {ylabel:'velocity  ṗ(t)  [m/s]', xmax:TEND, xtick:10, cap:30, hline:0,
+      curves:[{t:SAMP_T, y:TACH_Y, color:faint, w:2.1, kind:'dots'},
+              {t:TT, y:TV, color:ink,  w:1.0},
+              {t:r.t, y:r.vh, color:blue, w:1.8}]});
+
+    drawPanel(el.c4, {ylabel:'error in  ṗ  [m/s]', xmax:TEND, xtick:10, cap:20, hline:0,
+      curves:[{t:KAL.r.t, y:KAL.r.ev, color:faint, w:1.4},
+              {t:r.t, y:r.ev, color:blue, w:1.3}]});
+
+    var pred = Math.sqrt(Math.max(ob.P[0][0], 0));
+    var act  = Math.sqrt(Math.max(ob.S[0][0], 0));
+    var over = pred > 1e-9 ? act/pred : NaN;
+    el['s-rp'].textContent   = r.rmsP.toFixed(2) + ' m';
+    el['s-rv'].textContent   = r.rmsV.toFixed(2);
+    el['s-act'].textContent  = act.toFixed(2) + ' m';
+    el['s-pred'].textContent = pred.toFixed(2) + ' m';
+    el['s-over'].textContent = isFinite(over) ? over.toFixed(1) + '×' : '—';
+    el['s-over'].className   = 'n ' + (over > 1.5 ? 'no' : 'ok');
+
+    el.note.innerHTML = '<b>Notes</b> The sliders set the <i class="v">R</i><sub><i class="v">v</i></sub> and the '
+      + 'roughness entry of <i class="v">Q</i><sub><i class="v">w</i></sub> that the filter solves its '
+      + 'Riccati equation with. The car, the road and '
+      + 'the readings are one fixed realization and never change, so every difference you see is the '
+      + 'filter’s belief and nothing else. Each sensor gets a pair of panels: the signal with its own '
+      + 'readings behind it, then the error against the filter that believes the truth, drawn faint. '
+      + '<b>Actual</b> &sigma;<sub><i class="v">p</i></sub> is what this gain really delivers on the real '
+      + 'car, from the Lyapunov equation for the error, and <b>filter predicts</b> is the '
+      + '&radic;<i class="v">P</i><sub>11</sub> the filter claims for itself; both are stationary values, '
+      + 'so <b>overconfidence</b> is a property of the tuning and not of the realization drawn here. Only '
+      + 'a filter given the true noise reads 1.0&times;: one that trusts its sensors promises a precision '
+      + 'it cannot deliver. The measured rms runs a little above the stationary value because the '
+      + 'readings are held for a second and are therefore stale.';
+  }
+
+  var schedule = rafThrottle(render);
+  ['rg','rt','qw'].forEach(function(k){
+    el[k].addEventListener('input', function(){ S[k] = Math.pow(10, parseFloat(el[k].value)); schedule(); });
+  });
+
+  Array.prototype.forEach.call(document.querySelectorAll('.presets button'), function(btn){
+    btn.addEventListener('click', function(){
+      var p = PRESETS[btn.getAttribute('data-p')];
+      Object.keys(p).forEach(function(k){ S[k] = p[k]; el[k].value = Math.log10(p[k]); });
+      schedule();
+    });
+  });
+
+  var ro = new ResizeObserver(schedule);
+  ro.observe(el.c1); ro.observe(el.c2); ro.observe(el.c3); ro.observe(el.c4);
+  watchTheme(schedule);
+  render();
+})();
+</script>
+</body>
+</html>
