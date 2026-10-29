@@ -1,0 +1,698 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Aliasing bench &mdash; sensor &amp; sampler (L14)</title>
+<style>
+  :root{
+    --bg:#FBFAF8; --panel:#FFFFFF; --ink:#1F2328; --muted:#6E737A;
+    --line:#E4E2DD; --grid:#EDEBE6; --soft:#F4F2EE;
+    --blue:#4E74A6; --red:#AF5A46; --grey:#6E737A; --faint:#BFC4CB;
+    --good:#4E74A6; --bad:#AF5A46;
+    --gutter: max(16px, env(safe-area-inset-left));
+    --gutter-r: max(16px, env(safe-area-inset-right));
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#15171A; --panel:#1C1F23; --ink:#E9E8E4; --muted:#9BA1A8;
+      --line:#2C3037; --grid:#262A30; --soft:#22262B;
+      --blue:#84A6D6; --red:#D4866E; --grey:#9BA1A8; --faint:#49505A;
+      --good:#84A6D6; --bad:#D4866E;
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#15171A; --panel:#1C1F23; --ink:#E9E8E4; --muted:#9BA1A8;
+    --line:#2C3037; --grid:#262A30; --soft:#22262B;
+    --blue:#84A6D6; --red:#D4866E; --grey:#9BA1A8; --faint:#49505A;
+    --good:#84A6D6; --bad:#D4866E;
+  }
+
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;
+    font-size:14px; line-height:1.45; -webkit-text-size-adjust:100%;
+  }
+  .wrap{max-width:1180px; margin:0 auto; padding:20px var(--gutter-r) 36px var(--gutter);}
+
+  header{margin-bottom:16px}
+  h1{font-size:19px; font-weight:600; margin:0 0 4px; letter-spacing:-.01em}
+  .model{
+    margin-top:10px; padding:8px 11px; background:var(--soft);
+    border:1px solid var(--line); border-radius:7px;
+    font-size:12.5px; color:var(--muted);
+  }
+  .model b{color:var(--ink); font-weight:600}
+  i.v{font-family:Georgia,"Times New Roman",serif; font-style:italic}
+
+  .grid{display:grid; grid-template-columns:1fr; gap:16px}
+  @media (min-width:860px){
+    .grid{grid-template-columns:286px minmax(0,1fr); align-items:start}
+    .controls{order:-1; position:sticky; top:16px; max-height:calc(100vh - 32px); overflow-y:auto}
+  }
+
+  .card{
+    background:var(--panel); border:1px solid var(--line);
+    border-radius:10px; padding:14px;
+  }
+  .controls h2, .plots h2{
+    font-size:11px; text-transform:uppercase; letter-spacing:.07em;
+    color:var(--muted); font-weight:600; margin:0 0 10px;
+  }
+  .ctl{margin-bottom:14px}
+  .ctl:last-child{margin-bottom:0}
+  .ctl .row{display:flex; justify-content:space-between; align-items:baseline; gap:8px; margin-bottom:5px}
+  .ctl label{font-size:13.5px; font-weight:500}
+  .ctl label small{color:var(--muted); font-weight:400}
+  .ctl .val{
+    font-variant-numeric:tabular-nums; font-size:13px; color:var(--muted);
+    background:var(--soft); border-radius:5px; padding:1px 7px; white-space:nowrap;
+  }
+  input[type=range]{
+    -webkit-appearance:none; appearance:none; width:100%; height:20px;
+    background:transparent; margin:0; display:block;
+  }
+  input[type=range]::-webkit-slider-runnable-track{height:4px; background:var(--line); border-radius:3px}
+  input[type=range]::-moz-range-track{height:4px; background:var(--line); border-radius:3px}
+  input[type=range]::-webkit-slider-thumb{
+    -webkit-appearance:none; width:16px; height:16px; border-radius:50%;
+    background:var(--blue); border:2px solid var(--panel); margin-top:-6px;
+    box-shadow:0 0 0 1px var(--blue); cursor:pointer;
+  }
+  input[type=range]::-moz-range-thumb{
+    width:14px; height:14px; border-radius:50%; background:var(--blue);
+    border:2px solid var(--panel); box-shadow:0 0 0 1px var(--blue); cursor:pointer;
+  }
+  input[type=range]:focus-visible{outline:2px solid var(--blue); outline-offset:3px; border-radius:4px}
+
+  .divider{height:1px; background:var(--line); margin:16px 0 14px}
+  .impl .ctl label{font-weight:400; color:var(--muted)}
+  .fixed{font-size:12px; color:var(--muted); margin:0}
+  .fixed b{color:var(--ink); font-weight:600}
+
+  .presets{display:flex; flex-wrap:wrap; gap:6px}
+  .presets button{
+    font:inherit; font-size:12.5px; padding:5px 10px; cursor:pointer;
+    background:var(--soft); color:var(--ink);
+    border:1px solid var(--line); border-radius:999px;
+  }
+  .presets button:hover{border-color:var(--blue); color:var(--blue)}
+  .presets button[aria-pressed="true"]{border-color:var(--blue); color:var(--blue);
+    background:var(--panel); font-weight:600}
+  .presets button:focus-visible{outline:2px solid var(--blue); outline-offset:2px}
+
+  .stats{display:grid; grid-template-columns:repeat(auto-fit,minmax(118px,1fr)); gap:8px; margin-bottom:14px}
+  .stat{background:var(--soft); border:1px solid var(--line); border-radius:8px; padding:7px 9px}
+  .stat .k{font-size:10.5px; text-transform:uppercase; letter-spacing:.05em; color:var(--muted)}
+  .stat .k .lo, .stat .k i.v{text-transform:none}
+  .stat .n{font-size:16px; font-variant-numeric:tabular-nums; font-weight:600; margin-top:1px}
+  .stat .n.ok{color:var(--good)}
+  .stat .n.no{color:var(--bad)}
+
+  .panel{position:relative; margin-bottom:10px}
+  .panel:last-child{margin-bottom:0}
+  canvas{display:block; width:100%; height:190px}
+  canvas.tall{height:236px}
+  @media (max-width:620px){canvas{height:168px}}
+  .key{
+    position:absolute; top:6px; right:10px; font-size:11.5px;
+    display:flex; gap:11px; pointer-events:none; font-variant-numeric:tabular-nums;
+  }
+  .key .b{color:var(--blue)} .key .g{color:var(--grey)} .key .f{color:var(--faint)}
+  .key .r{color:var(--red)} .key .k{color:var(--ink)}
+
+  footer{margin-top:18px; color:var(--muted); font-size:12.5px}
+  footer b{color:var(--ink); font-weight:600}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Aliasing bench for the sensor and the sampler</h1>
+    <div class="model">
+      <b>Signal</b> one sinusoidal disturbance on the sensor, amplitude 1 &nbsp;&middot;&nbsp;
+      <b>Sampler</b> read every <i class="v">T</i> seconds and held, so the Nyquist frequency is 1/(2<i class="v">T</i>) &nbsp;&middot;&nbsp;
+      <b>Anti-alias filter</b> a first-order low-pass at <i class="v">f</i><sub>cut</sub>, the only thing between the disturbance and the sampler &nbsp;&middot;&nbsp;
+      <b>Setup</b> script section 14.1, 20&thinsp;s window; the cruise loop acts on anything below <i class="v">&omega;</i><sub>bw</sub> = 0.843&thinsp;rad/s, which is 0.134&thinsp;Hz.
+    </div>
+  </header>
+
+  <div class="grid">
+    <section class="plots">
+      <div class="stats">
+        <div class="stat"><div class="k">Nyquist frequency</div><div class="n" id="s-nyq">&mdash;</div></div>
+        <div class="stat"><div class="k">the loop acts on</div><div class="n" id="s-alias">&mdash;</div></div>
+        <div class="stat"><div class="k">inside the bandwidth</div><div class="n" id="s-inband">&mdash;</div></div>
+        <div class="stat"><div class="k">filter at the disturbance</div><div class="n" id="s-att">&mdash;</div></div>
+        <div class="stat"><div class="k">largest sample, filtered</div><div class="n" id="s-amp">&mdash;</div></div>
+      </div>
+
+      <div class="card">
+        <div class="panel">
+          <canvas id="c1"></canvas>
+          <div class="key"><span class="r">sampled directly</span><span class="f">disturbance</span></div>
+        </div>
+        <div class="panel">
+          <canvas id="c2"></canvas>
+          <div class="key"><span class="b">low-pass, then sampled</span><span class="f">after the filter</span></div>
+        </div>
+        <div class="panel">
+          <canvas id="c3"></canvas>
+        </div>
+      </div>
+    </section>
+
+    <section class="controls card">
+      <h2>The disturbance and the sampler</h2>
+      <div class="ctl">
+        <div class="row"><label for="fn"><i class="v">f</i><sub>noise</sub> <small>disturbance</small></label><span class="val" id="vfn">1.90 Hz</span></div>
+        <input type="range" id="fn" min="0.05" max="4" step="0.01" value="1.9">
+      </div>
+      <div class="ctl">
+        <div class="row"><label for="ts"><i class="v">T</i> <small>sampling period</small></label><span class="val" id="vts">0.50 s</span></div>
+        <input type="range" id="ts" min="0.05" max="2" step="0.01" value="0.5">
+      </div>
+      <div class="ctl">
+        <div class="row"><label for="fc"><i class="v">f</i><sub>cut</sub> <small>anti-alias corner</small></label><span class="val" id="vfc">0.25 Hz</span></div>
+        <input type="range" id="fc" min="0.02" max="2" step="0.01" value="0.25">
+      </div>
+
+      <div class="divider"></div>
+      <h2>Presets</h2>
+      <div class="presets">
+        <button type="button" data-p="script">the script's case</button>
+        <button type="button" data-p="atnyq">corner at Nyquist</button>
+        <button type="button" data-p="quarter">corner at Nyquist/4</button>
+        <button type="button" data-p="slow">nothing to fold</button>
+      </div>
+
+      <div class="divider"></div>
+      <h2>Why the corner sits below Nyquist</h2>
+      <p class="fixed">
+        A first-order filter is down only 3&thinsp;dB at its own corner, so a corner
+        placed at the Nyquist frequency still lets most of the disturbance through to
+        the sampler, and whatever arrives above Nyquist comes back folded to a
+        frequency the controller will act on. The script puts the corner a factor of
+        four below.
+      </p>
+    </section>
+  </div>
+
+  <footer id="note"></footer>
+</div>
+
+<script>
+/* =====================================================================
+   Shared core for the Control Systems browser tuners.
+   Dense linear algebra at n <= 8, a continuous-time Riccati solver, an
+   eigenvalue routine, deterministic noise, and a canvas plotter.
+   No dependencies: every page that uses this carries its own copy.
+   ===================================================================== */
+
+/* ---------------------------------------------------------- matrices */
+function mat(r, c, v){
+  var A = [], i, j;
+  for (i=0;i<r;i++){ A.push([]); for (j=0;j<c;j++) A[i].push(v||0); }
+  return A;
+}
+function eye(n){ var A = mat(n,n), i; for (i=0;i<n;i++) A[i][i]=1; return A; }
+function diag(d){ var n=d.length, A=mat(n,n), i; for (i=0;i<n;i++) A[i][i]=d[i]; return A; }
+function mmul(A,B){
+  var n=A.length, m=B[0].length, k=B.length, C=mat(n,m), i,j,q,s;
+  for (i=0;i<n;i++) for (j=0;j<m;j++){ s=0; for (q=0;q<k;q++) s+=A[i][q]*B[q][j]; C[i][j]=s; }
+  return C;
+}
+function mT(A){
+  var n=A.length, m=A[0].length, C=mat(m,n), i,j;
+  for (i=0;i<n;i++) for (j=0;j<m;j++) C[j][i]=A[i][j];
+  return C;
+}
+function madd(A,B,s){
+  var n=A.length, m=A[0].length, C=mat(n,m), i,j; s = (s===undefined)?1:s;
+  for (i=0;i<n;i++) for (j=0;j<m;j++) C[i][j]=A[i][j]+s*B[i][j];
+  return C;
+}
+function mvec(A,x){
+  var n=A.length, m=x.length, y=[], i,j,s;
+  for (i=0;i<n;i++){ s=0; for (j=0;j<m;j++) s+=A[i][j]*x[j]; y.push(s); }
+  return y;
+}
+/* Gaussian elimination with partial pivoting; M is destroyed. */
+function solveLin(M, b){
+  var n = b.length, i, j, k, p, t, f;
+  var x = b.slice();
+  for (k=0;k<n;k++){
+    p = k;
+    for (i=k+1;i<n;i++) if (Math.abs(M[i][k]) > Math.abs(M[p][k])) p = i;
+    if (p !== k){ t = M[p]; M[p] = M[k]; M[k] = t; t = x[p]; x[p] = x[k]; x[k] = t; }
+    if (Math.abs(M[k][k]) < 1e-300) M[k][k] = 1e-300;
+    for (i=k+1;i<n;i++){
+      f = M[i][k]/M[k][k];
+      if (f === 0) continue;
+      for (j=k;j<n;j++) M[i][j] -= f*M[k][j];
+      x[i] -= f*x[k];
+    }
+  }
+  for (i=n-1;i>=0;i--){
+    for (j=i+1;j<n;j++) x[i] -= M[i][j]*x[j];
+    x[i] /= M[i][i];
+  }
+  return x;
+}
+function minv(A){
+  var n = A.length, I = eye(n), C = mat(n,n), j, i, col;
+  for (j=0;j<n;j++){
+    var M = [], r;
+    for (r=0;r<n;r++) M.push(A[r].slice());
+    col = solveLin(M, I.map(function(row){ return row[j]; }));
+    for (i=0;i<n;i++) C[i][j] = col[i];
+  }
+  return C;
+}
+
+/* ------------------------------------------------- Lyapunov and CARE */
+/* Solves  Ac' P + P Ac + W = 0  by Kronecker expansion (column stacking).
+   n^2 x n^2 dense solve: fine to n = 8, which is all these models need. */
+function lyapT(Ac, W){
+  var n = Ac.length, N = n*n, M = mat(N,N), b = [], i,j,k,l,p,q;
+  for (j=0;j<n;j++) for (i=0;i<n;i++){
+    p = i + j*n;
+    for (l=0;l<n;l++) for (k=0;k<n;k++){
+      q = k + l*n;
+      var v = 0;
+      if (j === l) v += Ac[k][i];   /* (I kron Ac') */
+      if (i === k) v += Ac[l][j];   /* (Ac' kron I) */
+      M[p][q] = v;
+    }
+    b.push(-W[i][j]);
+  }
+  var x = solveLin(M, b), P = mat(n,n);
+  for (j=0;j<n;j++) for (i=0;i<n;i++) P[i][j] = x[i + j*n];
+  for (i=0;i<n;i++) for (j=i+1;j<n;j++){
+    var s = 0.5*(P[i][j] + P[j][i]); P[i][j] = s; P[j][i] = s;
+  }
+  return P;
+}
+/* Stabilizing solution of  A'P + PA - PBR^-1B'P + Q = 0, by Newton-Kleinman.
+   K0 must make A - B K0 Hurwitz; it does NOT depend on Q or R, so one fixed
+   seed gain per plant covers every slider position. Converges quadratically. */
+function care(A, B, Q, R, K0, iters){
+  var n = A.length, Ri = minv(R), K = K0.map(function(r){ return r.slice(); }), P = null;
+  var it = iters || 60, step;
+  for (var c=0;c<it;c++){
+    var Ac = madd(A, mmul(B,K), -1);
+    var Kt = mT(K);
+    var W  = madd(Q, mmul(Kt, mmul(R,K)), 1);
+    P = lyapT(Ac, W);
+    var Kn = mmul(Ri, mmul(mT(B), P));
+    step = 0;
+    for (var i=0;i<Kn.length;i++) for (var j=0;j<Kn[0].length;j++)
+      step = Math.max(step, Math.abs(Kn[i][j]-K[i][j]));
+    K = Kn;
+    if (step < 1e-12) break;
+  }
+  return {P:P, K:K};
+}
+
+/* ------------------------------------------------------- eigenvalues */
+function charpoly(A){
+  var n = A.length, M = eye(n), c = [1], k, i, j;
+  for (k=1;k<=n;k++){
+    var AM = mmul(A,M), tr = 0;
+    for (i=0;i<n;i++) tr += AM[i][i];
+    var ck = -tr/k; c.push(ck);
+    M = AM;
+    for (i=0;i<n;i++) M[i][i] += ck;
+  }
+  return c;
+}
+function cmul(a,b){ return [a[0]*b[0]-a[1]*b[1], a[0]*b[1]+a[1]*b[0]]; }
+function csub(a,b){ return [a[0]-b[0], a[1]-b[1]]; }
+function cdiv(a,b){ var d=b[0]*b[0]+b[1]*b[1]; if (d===0) d=1e-300;
+  return [(a[0]*b[0]+a[1]*b[1])/d, (a[1]*b[0]-a[0]*b[1])/d]; }
+function peval(c,z){ var r=[0,0]; for (var i=0;i<c.length;i++){ r=cmul(r,z); r=[r[0]+c[i], r[1]]; } return r; }
+function polyRoots(c){
+  var n = c.length-1, z = [], i, p = [1,0], seed = [0.4,0.9];
+  for (i=0;i<n;i++){ z.push(p); p = cmul(p,seed); }
+  for (var it=0; it<500; it++){
+    var moved = 0;
+    for (i=0;i<n;i++){
+      var num = peval(c,z[i]), den = [1,0];
+      for (var j=0;j<n;j++) if (j!==i) den = cmul(den, csub(z[i],z[j]));
+      var dz = cdiv(num,den);
+      z[i] = csub(z[i],dz);
+      moved = Math.max(moved, Math.abs(dz[0])+Math.abs(dz[1]));
+    }
+    if (moved < 1e-13) break;
+  }
+  return z;
+}
+function maxRealEig(A){
+  var z = polyRoots(charpoly(A)), m = -Infinity;
+  for (var i=0;i<z.length;i++) if (z[i][0] > m) m = z[i][0];
+  return m;
+}
+
+/* ---------------------------------------------- deterministic noise */
+function mulberry32(a){
+  return function(){
+    a |= 0; a = a + 0x6D2B79F5 | 0;
+    var t = Math.imul(a ^ a >>> 15, 1 | a);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
+function gaussSeq(seed, n){
+  var rnd = mulberry32(seed), a = new Float64Array(n), i;
+  for (i=0;i<n;i+=2){
+    var u1 = Math.max(rnd(), 1e-12), u2 = rnd(), r = Math.sqrt(-2*Math.log(u1));
+    a[i] = r*Math.cos(2*Math.PI*u2);
+    if (i+1 < n) a[i+1] = r*Math.sin(2*Math.PI*u2);
+  }
+  return a;
+}
+
+/* ------------------------------------------------------------ canvas */
+function cssvar(name){
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+}
+function fitCanvas(cv){
+  var dpr = window.devicePixelRatio || 1, r = cv.getBoundingClientRect();
+  cv.width  = Math.max(1, Math.round(r.width*dpr));
+  cv.height = Math.max(1, Math.round(r.height*dpr));
+  var ctx = cv.getContext('2d');
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  return {ctx:ctx, w:r.width, h:r.height};
+}
+function niceStep(range, target){
+  if (!(range > 0)) return 1;
+  var raw = range/target, e = Math.pow(10, Math.floor(Math.log10(raw))), f = raw/e;
+  var n = f < 1.5 ? 1 : f < 3 ? 2 : f < 7 ? 5 : 10;
+  return n*e;
+}
+function extent(curves, cap){
+  var lo = Infinity, hi = -Infinity, s, i, v;
+  for (s=0;s<curves.length;s++){
+    var a = curves[s].y;
+    for (i=0;i<a.length;i++){
+      v = a[i];
+      if (!isFinite(v)) continue;
+      if (v < lo) lo = v; if (v > hi) hi = v;
+    }
+  }
+  if (!isFinite(lo)){ lo = -1; hi = 1; }
+  lo = Math.max(lo, -cap); hi = Math.min(hi, cap);
+  if (hi - lo < 1e-9){ lo -= 0.5; hi += 0.5; }
+  var pad = 0.09*(hi-lo);
+  return [lo-pad, hi+pad];
+}
+/* o = {ylabel, xmax, xtick, curves, cap, hline, ylim}
+   each curve = {t, y, color, w, dash, kind:'line'|'dots'} */
+function drawPanel(cv, o){
+  var g = fitCanvas(cv), ctx = g.ctx, W = g.w, H = g.h;
+  var L = 50, R = 8, Tp = 10, B = 34, i;
+  ctx.clearRect(0,0,W,H);
+
+  var cap = o.cap === undefined ? 1e9 : o.cap;
+  var ex  = o.ylim || extent(o.curves, cap), y0 = ex[0], y1 = ex[1];
+  var xmax = o.xmax;
+  var px = function(t){ return L + (W-L-R)*t/xmax; };
+  var py = function(v){ return Tp + (H-Tp-B)*(1 - (v-y0)/(y1-y0)); };
+
+  var grid = cssvar('--grid'), line = cssvar('--line'), muted = cssvar('--muted');
+  ctx.font = '11px -apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif';
+  ctx.strokeStyle = grid; ctx.lineWidth = 1;
+
+  var ystep = niceStep(y1-y0, 4), dec = ystep < 1 ? (ystep < 0.1 ? 2 : 1) : (ystep < 10 ? 1 : 0);
+  ctx.textAlign = 'right'; ctx.textBaseline = 'middle'; ctx.fillStyle = muted;
+  for (var v = Math.ceil(y0/ystep)*ystep; v <= y1; v += ystep){
+    var yy = Math.round(py(v)) + 0.5;
+    ctx.beginPath(); ctx.moveTo(L, yy); ctx.lineTo(W-R, yy); ctx.stroke();
+    ctx.fillText(Math.abs(v) < ystep*1e-6 ? '0' : v.toFixed(dec), L-7, yy);
+  }
+  ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+  for (var tt = 0; tt <= xmax + 1e-9; tt += o.xtick){
+    var xx = Math.round(px(tt)) + 0.5;
+    ctx.beginPath(); ctx.moveTo(xx, Tp); ctx.lineTo(xx, H-B); ctx.stroke();
+    ctx.fillText(String(Math.round(tt*1000)/1000), xx, H-B+6);
+  }
+
+  ctx.strokeStyle = line;
+  ctx.beginPath(); ctx.moveTo(L+0.5, Tp); ctx.lineTo(L+0.5, H-B+0.5); ctx.lineTo(W-R, H-B+0.5); ctx.stroke();
+
+  ctx.save();
+  ctx.translate(12, (Tp + H-B)/2); ctx.rotate(-Math.PI/2);
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillStyle = muted;
+  ctx.fillText(o.ylabel, 0, 0);
+  ctx.restore();
+  ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+  ctx.fillText('time  t  [s]', (L + W - R)/2, H-2);
+
+  if (o.hline !== null && o.hline !== undefined && o.hline > y0 && o.hline < y1){
+    ctx.save(); ctx.setLineDash([2,3]); ctx.strokeStyle = cssvar('--faint'); ctx.lineWidth = 1;
+    var hy = Math.round(py(o.hline))+0.5;
+    ctx.beginPath(); ctx.moveTo(L, hy); ctx.lineTo(W-R, hy); ctx.stroke(); ctx.restore();
+  }
+
+  ctx.save();
+  ctx.beginPath(); ctx.rect(L, Tp, W-L-R, H-Tp-B); ctx.clip();
+  ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+  for (var c = 0; c < o.curves.length; c++){
+    var cu = o.curves[c];
+    if (cu.kind === 'dots'){
+      ctx.fillStyle = cu.color;
+      for (i=0;i<cu.y.length;i++){
+        if (!isFinite(cu.y[i])) continue;
+        var vv = Math.max(-cap*1.4, Math.min(cap*1.4, cu.y[i]));
+        ctx.beginPath(); ctx.arc(px(cu.t[i]), py(vv), cu.w || 1.6, 0, 6.2832); ctx.fill();
+      }
+      continue;
+    }
+    ctx.strokeStyle = cu.color; ctx.lineWidth = cu.w;
+    ctx.setLineDash(cu.dash || []);
+    ctx.beginPath();
+    var pen = false;
+    for (i = 0; i < cu.y.length; i++){
+      var val = cu.y[i];
+      if (!isFinite(val)){ pen = false; continue; }
+      var cl = Math.max(-cap*1.4, Math.min(cap*1.4, val));
+      var X = px(cu.t[i]), Y = py(cl);
+      if (!pen){ ctx.moveTo(X,Y); pen = true; } else ctx.lineTo(X,Y);
+    }
+    ctx.stroke(); ctx.setLineDash([]);
+  }
+  ctx.restore();
+}
+
+/* ---------------------------------------------------------------- ui */
+function rafThrottle(fn){
+  var pending = false;
+  return function(){
+    if (pending) return;
+    pending = true;
+    requestAnimationFrame(function(){ pending = false; fn(); });
+  };
+}
+function watchTheme(fn){
+  if (!window.matchMedia) return;
+  var mq = window.matchMedia('(prefers-color-scheme: dark)');
+  if (mq.addEventListener) mq.addEventListener('change', fn);
+}
+
+(function(){
+  "use strict";
+
+  var TMAX = 20.0, NFINE = 12000, W_BW_HZ = 0.8426/(2*Math.PI);   /* 0.1341 Hz */
+  var DTF = TMAX/NFINE;
+
+  var TFINE = new Float64Array(NFINE);
+  (function(){ for (var i=0;i<NFINE;i++) TFINE[i] = i*DTF; })();
+
+  /* The disturbance, and the same disturbance through a first-order low-pass.
+     Euler at the fine step, exactly as the figure script does it. */
+  function signals(fn, fc){
+    var raw = new Float64Array(NFINE), filt = new Float64Array(NFINE);
+    var tau = 1/(2*Math.PI*fc), w = 2*Math.PI*fn, i;
+    for (i=0;i<NFINE;i++) raw[i] = Math.sin(w*TFINE[i]);
+    for (i=1;i<NFINE;i++) filt[i] = filt[i-1] + DTF/tau*(raw[i-1] - filt[i-1]);
+    return {raw:raw, filt:filt};
+  }
+  function interp(y, t){
+    var x = t/DTF, i = Math.floor(x);
+    if (i < 0) return y[0];
+    if (i >= NFINE-1) return y[NFINE-1];
+    var f = x - i;
+    return y[i]*(1-f) + y[i+1]*f;
+  }
+  function sampleAndHold(y, T){
+    var tk = [], vk = [], t = 0;
+    while (t <= TMAX + 1e-9){ tk.push(t); vk.push(interp(y, t)); t += T; }
+    var ot = [], ov = [], i;
+    for (i=0;i<tk.length;i++){ ot.push(tk[i]); ov.push(vk[i]); ot.push(tk[i]+T); ov.push(vk[i]); }
+    return {tk:tk, vk:vk, st:ot, sv:ov};
+  }
+  /* The frequency the loop actually sees: f folded about the sample rate. */
+  function aliasOf(fn, T){ return Math.abs(fn - Math.round(fn*T)/T); }
+
+  /* decimate the fine grid for drawing */
+  function thin(y, stride){
+    var n = Math.floor(NFINE/stride), t = new Float64Array(n), v = new Float64Array(n), i;
+    for (i=0;i<n;i++){ t[i] = TFINE[i*stride]; v[i] = y[i*stride]; }
+    return {t:t, y:v};
+  }
+
+  /* -------------------------------------------------- the frequency strip */
+  function drawStrip(cv, fn, T, fc){
+    var g = fitCanvas(cv), ctx = g.ctx, W = g.w, H = g.h;
+    ctx.clearRect(0,0,W,H);
+    var grid=cssvar('--grid'), line=cssvar('--line'), muted=cssvar('--muted'),
+        blue=cssvar('--blue'), red=cssvar('--red'), faint=cssvar('--faint');
+    var L=50, R=10, Tp=20, B=34;
+    var fNyq = 0.5/T;
+    var fmax = Math.max(fn*1.25, fNyq*2.2, 0.5);
+    var px = function(f){ return L + (W-L-R)*f/fmax; };
+    var py = function(v){ return Tp + (H-Tp-B)*(1 - v/1.08); };
+
+    ctx.font='11px -apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif';
+    ctx.strokeStyle=grid; ctx.lineWidth=1;
+    ctx.textAlign='right'; ctx.textBaseline='middle'; ctx.fillStyle=muted;
+    [0,0.5,1.0].forEach(function(v){
+      var yy=Math.round(py(v))+0.5;
+      ctx.beginPath(); ctx.moveTo(L,yy); ctx.lineTo(W-R,yy); ctx.stroke();
+      ctx.fillText(v.toFixed(1), L-7, yy);
+    });
+    var fstep = niceStep(fmax, 5);
+    ctx.textAlign='center'; ctx.textBaseline='top';
+    for (var f=0; f<=fmax+1e-9; f+=fstep){
+      var xx=Math.round(px(f))+0.5;
+      ctx.beginPath(); ctx.moveTo(xx,Tp); ctx.lineTo(xx,H-B); ctx.stroke();
+      ctx.fillText((Math.round(f*100)/100).toString(), xx, H-B+6);
+    }
+    ctx.strokeStyle=line;
+    ctx.beginPath(); ctx.moveTo(L+0.5,Tp); ctx.lineTo(L+0.5,H-B+0.5); ctx.lineTo(W-R,H-B+0.5); ctx.stroke();
+
+    ctx.save(); ctx.beginPath(); ctx.rect(L,Tp,W-L-R,H-Tp-B); ctx.clip();
+
+    /* the filter's magnitude */
+    ctx.strokeStyle=faint; ctx.lineWidth=1.5; ctx.beginPath();
+    for (var i=0;i<=240;i++){
+      var ff = i*fmax/240, m = 1/Math.sqrt(1 + (ff/fc)*(ff/fc));
+      if (i===0) ctx.moveTo(px(ff), py(m)); else ctx.lineTo(px(ff), py(m));
+    }
+    ctx.stroke();
+
+    /* the lines are clipped to the axes; their labels are drawn after the
+       clip is released, or the topmost ones lose their ascenders */
+    var marks = [[fNyq, muted, 1, [4,3], 'Nyquist', 1.0],
+                 [fn, cssvar('--grey'), 2, [], 'disturbance', 1.0]];
+    var fa = aliasOf(fn, T);
+    if (Math.abs(fa - fn) > 1e-9) marks.push([fa, red, 2, [], 'folds to here', 0.82]);
+    marks.forEach(function(m){
+      ctx.strokeStyle=m[1]; ctx.lineWidth=m[2]; ctx.setLineDash(m[3]);
+      ctx.beginPath(); ctx.moveTo(px(m[0]), py(0)); ctx.lineTo(px(m[0]), py(m[5])); ctx.stroke();
+      ctx.setLineDash([]);
+    });
+    ctx.restore();
+    ctx.textAlign='center'; ctx.textBaseline='bottom';
+    marks.forEach(function(m){
+      var x = Math.min(Math.max(px(m[0]), L+28), W-R-28);
+      ctx.fillStyle=m[1]; ctx.fillText(m[4], x, py(m[5]) - 4);
+    });
+
+    ctx.fillStyle=muted; ctx.textAlign='center'; ctx.textBaseline='bottom';
+    ctx.fillText('frequency  [Hz]', (L+W-R)/2, H-2);
+    ctx.save();
+    ctx.translate(12, (Tp+H-B)/2); ctx.rotate(-Math.PI/2);
+    ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillText('filter  |H|', 0, 0);
+    ctx.restore();
+  }
+
+  /* ------------------------------------------------------------------- ui */
+  var S = {fn:1.90, T:0.50, fc:0.25};
+  var el = {};
+  ['fn','ts','fc','vfn','vts','vfc','c1','c2','c3',
+   's-nyq','s-alias','s-inband','s-att','s-amp','note']
+    .forEach(function(k){ el[k]=document.getElementById(k); });
+
+  var PRESETS = {
+    script:  function(){ return {fn:1.90, T:0.50, fc:0.25}; },
+    atnyq:   function(){ return {fn:S.fn, T:S.T, fc:0.5/S.T}; },
+    quarter: function(){ return {fn:S.fn, T:S.T, fc:0.125/S.T}; },
+    slow:    function(){ return {fn:0.40, T:0.50, fc:0.25}; }
+  };
+
+  function render(){
+    el.vfn.textContent = S.fn.toFixed(2) + ' Hz';
+    el.vts.textContent = S.T.toFixed(2) + ' s';
+    el.vfc.textContent = S.fc.toFixed(2) + ' Hz';
+
+    var sg = signals(S.fn, S.fc);
+    var direct = sampleAndHold(sg.raw, S.T), viaFilter = sampleAndHold(sg.filt, S.T);
+    var red = cssvar('--red'), blue = cssvar('--blue'), faint = cssvar('--faint');
+
+    drawPanel(el.c1, {ylabel:'sensor signal', xmax:TMAX, xtick:5, cap:2, hline:0, ylim:[-1.35,1.35],
+      curves:[{t:thin(sg.raw,2).t, y:thin(sg.raw,2).y, color:faint, w:1.1},
+              {t:direct.st, y:direct.sv, color:red, w:1.8},
+              {t:direct.tk, y:direct.vk, color:red, w:2.2, kind:'dots'}]});
+
+    drawPanel(el.c2, {ylabel:'sensor signal', xmax:TMAX, xtick:5, cap:2, hline:0, ylim:[-1.35,1.35],
+      curves:[{t:thin(sg.filt,2).t, y:thin(sg.filt,2).y, color:faint, w:1.1},
+              {t:viaFilter.st, y:viaFilter.sv, color:blue, w:1.8},
+              {t:viaFilter.tk, y:viaFilter.vk, color:blue, w:2.2, kind:'dots'}]});
+
+    drawStrip(el.c3, S.fn, S.T, S.fc);
+
+    var fNyq = 0.5/S.T, fa = aliasOf(S.fn, S.T);
+    var att = 1/Math.sqrt(1 + (S.fn/S.fc)*(S.fn/S.fc));
+    var amp = 0, i;
+    for (i=0;i<viaFilter.vk.length;i++) amp = Math.max(amp, Math.abs(viaFilter.vk[i]));
+    var inBand = fa < W_BW_HZ;
+
+    el['s-nyq'].textContent   = fNyq.toFixed(2) + ' Hz';
+    el['s-alias'].textContent = fa.toFixed(2) + ' Hz';
+    el['s-inband'].textContent = inBand ? 'yes' : 'no';
+    el['s-inband'].className   = 'n ' + (inBand ? 'no' : 'ok');
+    el['s-att'].textContent   = (20*Math.log10(att)).toFixed(1) + ' dB';
+    el['s-amp'].textContent   = amp.toFixed(3);
+
+    var folded = Math.abs(fa - S.fn) > 1e-9;
+    el.note.innerHTML = '<b>Notes</b> Both panels are the same disturbance, the same sampling period '
+      + 'and the same sample instants: only the filter ahead of the sampler differs. '
+      + (folded
+         ? 'At ' + S.fn.toFixed(2) + '&thinsp;Hz the disturbance sits above the Nyquist frequency of '
+           + fNyq.toFixed(2) + '&thinsp;Hz, so the samples cannot tell it apart from a wave at '
+           + fa.toFixed(2) + '&thinsp;Hz, and that is the frequency the controller will act on. '
+         : 'At ' + S.fn.toFixed(2) + '&thinsp;Hz the disturbance sits below the Nyquist frequency of '
+           + fNyq.toFixed(2) + '&thinsp;Hz, so nothing folds and the samples describe the real signal. ')
+      + 'The loop acts on anything below 0.134&thinsp;Hz, so an alias that lands inside that band is a '
+      + 'disturbance the controller will chase and, by chasing it, create. <b>Filter at the '
+      + 'disturbance</b> is the first-order magnitude at <i class="v">f</i><sub>noise</sub>, and '
+      + '<b>largest sample</b> is what survives to the sampler after filtering, against 1.0 unfiltered.';
+  }
+
+  var schedule = rafThrottle(render);
+  el.fn.addEventListener('input', function(){ S.fn = parseFloat(el.fn.value); schedule(); });
+  el.ts.addEventListener('input', function(){ S.T  = parseFloat(el.ts.value); schedule(); });
+  el.fc.addEventListener('input', function(){ S.fc = parseFloat(el.fc.value); schedule(); });
+
+  Array.prototype.forEach.call(document.querySelectorAll('.presets button'), function(btn){
+    btn.addEventListener('click', function(){
+      var p = PRESETS[btn.getAttribute('data-p')]();
+      S.fn = Math.min(4, Math.max(0.05, p.fn));
+      S.T  = Math.min(2, Math.max(0.05, p.T));
+      S.fc = Math.min(2, Math.max(0.02, p.fc));
+      el.fn.value = S.fn; el.ts.value = S.T; el.fc.value = S.fc;
+      schedule();
+    });
+  });
+
+  var ro = new ResizeObserver(schedule);
+  ro.observe(el.c1); ro.observe(el.c2); ro.observe(el.c3);
+  watchTheme(schedule);
+  render();
+})();
+</script>
+</body>
+</html>
