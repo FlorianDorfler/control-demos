@@ -177,21 +177,6 @@
     </section>
 
     <section class="controls card">
-      <h2>The traverse</h2>
-      <div class="presets" id="run">
-        <button type="button" id="play">play</button>
-        <button type="button" id="rewind">rewind</button>
-      </div>
-      <div class="ctl">
-        <div class="row"><label for="pos">position on <i class="v">D</i></label><span class="val" id="vpos">100%</span></div>
-        <input type="range" id="pos" min="0" max="1000" step="1" value="1000">
-      </div>
-      <div class="ctl">
-        <div class="row"><label for="spd">speed</label><span class="val" id="vspd">1.0&times;</span></div>
-        <input type="range" id="spd" min="2" max="40" step="1" value="10">
-      </div>
-
-      <div class="divider"></div>
       <h2>Presets</h2>
       <div class="presets" id="presets">
         <button type="button" data-p="ex" aria-pressed="true">Example 11.2 of the script</button>
@@ -841,9 +826,7 @@ var PRESETS = {
 
 var roots = PRESETS.ex.map(function(r){ return {kind:r.kind, re:r.re, im:r.im}; });
 var Rc = 5.0;          /* radius of the arc                       */
-var frac = 1.0;        /* how much of the contour has been walked */
-var playing = false;
-var speed = 1.0;
+var frac = 0.0;        /* how much of the contour has been walked */
 var zoom = 1.0;        /* magnification of the image panel        */
 var drag = null;       /* index of the root under the pointer     */
 var tf1 = null;        /* the left panel's transform, for hit-testing */
@@ -988,18 +971,16 @@ function draw(){
   document.getElementById('s-P').textContent = C.P;
   document.getElementById('s-pred').textContent = (C.Z - C.P > 0 ? '+' : '') + (C.Z - C.P);
   var meas = full/(2*Math.PI);
-  document.getElementById('s-meas').textContent =
-    (frac > 0.999 ? ((meas > 0 ? '+' : '') + meas.toFixed(2)) : '—');
+  document.getElementById('s-meas').textContent = (meas > 0 ? '+' : '') + meas.toFixed(2);
   document.getElementById('s-ang').textContent = (ang*180/Math.PI).toFixed(0) + '°';
-  document.getElementById('vpos').textContent = Math.round(frac*100) + '%';
   document.getElementById('vR').textContent = Rc.toFixed(1);
 
   var agree = Math.abs(meas - (C.Z - C.P)) < 0.02;
   document.getElementById('note').innerHTML =
     '<b>Notes</b> <i class="v">Z</i> and <i class="v">P</i> are counted by looking at which roots lie ' +
     'inside the contour. The encirclement number beside them is measured the other way, by ' +
-    'accumulating the change of the argument of <i class="v">Π</i> along the traced image and ' +
-    'dividing by 360&deg;; it appears once the traverse is complete. ' +
+    'accumulating the change of the argument of <i class="v">Π</i> around the whole image and ' +
+    'dividing by 360&deg;. The angle beside it is the part swept so far by the point now walking the contour, and it resets on every lap. ' +
     (agree
       ? 'The two agree here, as the argument principle says they must.'
       : 'They disagree, which here means a root is sitting on the contour: move it off.') +
@@ -1050,26 +1031,12 @@ function bind(id, fn){
   var el = document.getElementById(id);
   el.addEventListener('input', function(){ fn(el); render(); });
 }
-bind('pos', function(el){ frac = +el.value/1000; });
 bind('R',   function(el){ Rc = +el.value; });
 bind('zoom', function(el){
   zoom = +el.value/10;
   document.getElementById('vzoom').textContent = zoom.toFixed(1) + '\u00d7';
 });
-bind('spd', function(el){
-  speed = +el.value/10;
-  document.getElementById('vspd').textContent = speed.toFixed(1) + '×';
-});
 
-document.getElementById('play').addEventListener('click', function(){
-  playing = !playing;
-  this.textContent = playing ? 'pause' : 'play';
-  if (playing && frac > 0.999) frac = 0;
-  if (playing) tick();
-});
-document.getElementById('rewind').addEventListener('click', function(){
-  frac = 0; document.getElementById('pos').value = 0; render();
-});
 document.getElementById('addz').addEventListener('click', function(){
   roots.push({kind: 'z', re: 1.2, im: 2.2}); render();
 });
@@ -1081,20 +1048,26 @@ document.getElementById('del').addEventListener('click', function(){
   render();
 });
 
+/* The traverse runs on its own, for ever.  There is no play button and no
+   speed knob: the only thing this page is for is the image being drawn while
+   the point walks the contour, and a control that can stop it just gets in
+   the way during a lecture.  One lap takes five and a half seconds, slow
+   enough to follow and short enough that the next lap starts before anybody
+   looks away. */
+var LAP = 5.5;
 var last = 0;
 function tick(ts){
-  if (!playing) return;
-  if (!last) last = ts || 0;
-  var dt = ((ts || 0) - last)/1000; last = ts || 0;
+  ts = ts || 0;
+  if (!last) last = ts;
+  var dt = (ts - last)/1000; last = ts;
+  /* A tab that has been in the background hands back one enormous dt.
+     Ignore it rather than skipping most of a lap. */
   if (dt > 0 && dt < 0.5){
-    frac += dt*speed*0.18;
-    if (frac >= 1){ frac = 1; playing = false;
-      document.getElementById('play').textContent = 'play'; }
-    document.getElementById('pos').value = Math.round(frac*1000);
+    frac += dt/LAP;
+    while (frac >= 1) frac -= 1;
     draw();
   }
-  if (playing) requestAnimationFrame(tick);
-  else last = 0;
+  requestAnimationFrame(tick);
 }
 
 document.querySelectorAll('#presets button').forEach(function(b){
@@ -1104,8 +1077,6 @@ document.querySelectorAll('#presets button').forEach(function(b){
     b.setAttribute('aria-pressed', 'true');
     roots = PRESETS[b.dataset.p].map(function(r){
       return {kind: r.kind, re: r.re, im: r.im}; });
-    frac = 1; document.getElementById('pos').value = 1000;
-    playing = false; document.getElementById('play').textContent = 'play';
     render();
   });
 });
@@ -1113,6 +1084,7 @@ document.querySelectorAll('#presets button').forEach(function(b){
 watchTheme(render);
 window.addEventListener('resize', render);
 draw();
+requestAnimationFrame(tick);
 </script>
 </body>
 </html>
