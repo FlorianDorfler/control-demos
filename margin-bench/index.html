@@ -147,7 +147,7 @@
     <h1>Margin bench for the car of Lecture 10</h1>
     <div class="model">
       <b>Plant</b> <i class="v">G</i>(<i class="v">s</i>) = 1 / (<i class="v">s</i>(<i class="v">s</i> + 1)), the same car &nbsp;&middot;&nbsp;
-      <b>Controller</b> <i class="v">K</i>(<i class="v">s</i>) = <i class="v">k</i> + <i class="v">K</i><sub>D</sub><i class="v">s</i>, reaching the car over a network that delays the command by <i class="v">T</i> &nbsp;&middot;&nbsp;
+      <b>Controller</b> <i class="v">K</i>(<i class="v">s</i>) = <i class="v">K</i><sub>P</sub> + <i class="v">K</i><sub>D</sub><i class="v">s</i>, reaching the car over a network that delays the command by <i class="v">T</i> &nbsp;&middot;&nbsp;
       <b>Setup</b> the loop is <i class="v">L</i>(<i class="v">s</i>) = <i class="v">K</i>(<i class="v">s</i>)<i class="v">G</i>(<i class="v">s</i>)e<sup>&minus;<i class="v">sT</i></sup>, drawn as a Nyquist plot, a Bode plot, and the step response of the closed loop under a unit reference, all from the one transfer function.
     </div>
   </header>
@@ -187,10 +187,14 @@
     </section>
 
     <section class="controls card">
-      <h2>The two knobs</h2>
+      <h2>The three knobs</h2>
       <div class="ctl">
-        <div class="row"><label for="k"><i class="v">k</i> <small>proportional gain</small></label><span class="val" id="vk">4.00</span></div>
+        <div class="row"><label for="k"><i class="v">K</i><sub>P</sub> <small>proportional gain</small></label><span class="val" id="vk">4.00</span></div>
         <input type="range" id="k" min="0.5" max="12" step="0.05" value="4">
+      </div>
+      <div class="ctl">
+        <div class="row"><label for="kd"><i class="v">K</i><sub>D</sub> <small>derivative gain</small></label><span class="val" id="vkd">0.00</span></div>
+        <input type="range" id="kd" min="0" max="6" step="0.05" value="0">
       </div>
       <div class="ctl">
         <div class="row"><label for="T"><i class="v">T</i> <small>network delay</small></label><span class="val" id="vT">0 ms</span></div>
@@ -200,21 +204,17 @@
       <div class="divider"></div>
       <h2>Presets</h2>
       <div class="presets" id="presets">
-        <button type="button" data-p="1,0,0">gentle, <i class="v">k</i> = 1</button>
+        <button type="button" data-p="1,0,0">gentle, <i class="v">K</i><sub>P</sub> = 1</button>
         <button type="button" data-p="4,0,0" aria-pressed="true">the Lecture 10 gain</button>
         <button type="button" data-p="4,260,0">exactly the delay margin</button>
         <button type="button" data-p="4,400,0">over the budget</button>
-        <button type="button" data-p="8,0,0">fast, <i class="v">k</i> = 8</button>
+        <button type="button" data-p="8,0,0">fast, <i class="v">K</i><sub>P</sub> = 8</button>
         <button type="button" data-p="4,260,3">last week's PD, same delay</button>
       </div>
 
       <div class="divider"></div>
       <section class="impl">
         <h2>Last week's derivative term</h2>
-        <div class="ctl">
-          <div class="row"><label for="kd"><i class="v">K</i><sub>D</sub> <small>derivative gain</small></label><span class="val" id="vkd">0.00</span></div>
-          <input type="range" id="kd" min="0" max="6" step="0.05" value="0">
-        </div>
         <p class="fixed">
           <b>Lecture 10 designed</b> <i class="v">K</i><sub>P</sub> = 4 and <i class="v">K</i><sub>D</sub> = 3 by placing poles. Set the
           derivative gain to 3 and read the delay margin: the same pole placement also bought
@@ -510,6 +510,72 @@ function drawPanel(cv, o){
   ctx.restore();
 }
 
+/* ----------------------------------------------- transfer functions */
+/* Polynomials are plain arrays, highest power first, exactly as numpy and
+   MATLAB write them, so a coefficient list can be copied straight out of a
+   figure script without reversing it. */
+function pconv(a, b){
+  var c = new Array(a.length + b.length - 1).fill(0), i, j;
+  for (i = 0; i < a.length; i++) for (j = 0; j < b.length; j++) c[i+j] += a[i]*b[j];
+  return c;
+}
+function padd(a, b){
+  var n = Math.max(a.length, b.length), c = new Array(n).fill(0), i;
+  for (i = 0; i < a.length; i++) c[n - a.length + i] += a[i];
+  for (i = 0; i < b.length; i++) c[n - b.length + i] += b[i];
+  return c;
+}
+function pevalC(p, re, im){
+  var r = 0, m = 0, i, nr;
+  for (i = 0; i < p.length; i++){ nr = r*re - m*im + p[i]; m = r*im + m*re; r = nr; }
+  return [r, m];
+}
+/* |H(i w)| and the continuous argument of H(i w), for H = num/den. */
+function freqResp(num, den, w){
+  var a = pevalC(num, 0, w), b = pevalC(den, 0, w);
+  var d = b[0]*b[0] + b[1]*b[1]; if (d === 0) d = 1e-300;
+  var re = (a[0]*b[0] + a[1]*b[1])/d, im = (a[1]*b[0] - a[0]*b[1])/d;
+  return {re: re, im: im, mag: Math.hypot(re, im), ph: Math.atan2(im, re)};
+}
+/* Simulate y = (num/den) u on the grid t, in controllable canonical form with
+   RK4.  The pen is lifted once the state runs away, so a loop that is only
+   internally unstable shows the divergence instead of overflowing. */
+function simTF(num, den, t, u, blowup){
+  var n = den.length - 1, i, j;
+  var nm = new Array(den.length - num.length).fill(0).concat(num.slice());
+  var d0 = nm[0]/den[0], b = [], a = [];
+  for (i = 1; i < den.length; i++){ b.push((nm[i] - d0*den[i])/den[0]); a.push(den[i]/den[0]); }
+  var x = new Array(n).fill(0), y = new Float64Array(t.length);
+  var cap = blowup || 1e7;
+  function f(xs, uu){
+    var dx = new Array(n).fill(0), s = 0;
+    for (j = 0; j < n; j++) s -= a[j]*xs[j];
+    dx[0] = s + uu;
+    for (j = 1; j < n; j++) dx[j] = xs[j-1];
+    return dx;
+  }
+  for (i = 0; i < t.length; i++){
+    var o = d0*u[i];
+    for (j = 0; j < n; j++) o += b[j]*x[j];
+    y[i] = o;
+    if (i + 1 === t.length) break;
+    var h = t[i+1] - t[i], um = 0.5*(u[i] + u[i+1]), k, q = [];
+    var k1 = f(x, u[i]);
+    for (j = 0; j < n; j++) q[j] = x[j] + 0.5*h*k1[j];
+    var k2 = f(q, um);
+    for (j = 0; j < n; j++) q[j] = x[j] + 0.5*h*k2[j];
+    var k3 = f(q, um);
+    for (j = 0; j < n; j++) q[j] = x[j] + h*k3[j];
+    var k4 = f(q, u[i+1]), bad = false;
+    for (j = 0; j < n; j++){
+      x[j] += h/6*(k1[j] + 2*k2[j] + 2*k3[j] + k4[j]);
+      if (!isFinite(x[j]) || Math.abs(x[j]) > cap) bad = true;
+    }
+    if (bad){ for (k = i + 1; k < t.length; k++) y[k] = NaN; break; }
+  }
+  return y;
+}
+
 /* ------------------------------------------------- general 2-D plotter */
 /* drawPanel above draws signals against time. Frequency-domain pages need
    something more general: a log axis, a fixed window, and equal aspect for a
@@ -605,6 +671,29 @@ function drawGraph(cv, o){
     ctx.moveTo(Math.round(px(0)) + 0.5, by0); ctx.lineTo(Math.round(px(0)) + 0.5, by1);
     ctx.stroke();
   }
+  /* Filled polygons in data coordinates, for a region whose boundary is a
+     curve rather than a rectangle: the interior of a D-contour, say. */
+  for (i = 0; i < (o.fills || []).length; i++){
+    var fl = o.fills[i];
+    ctx.save(); ctx.globalAlpha = fl.alpha === undefined ? 0.08 : fl.alpha;
+    ctx.fillStyle = fl.color; ctx.beginPath();
+    for (j = 0; j < fl.x.length; j++){
+      if (j === 0) ctx.moveTo(px(fl.x[j]), py(fl.y[j]));
+      else         ctx.lineTo(px(fl.x[j]), py(fl.y[j]));
+    }
+    ctx.closePath(); ctx.fill(); ctx.restore();
+  }
+  /* Shaded rectangles in data coordinates, for a specification mask drawn
+     behind the curves rather than described in a caption. */
+  for (i = 0; i < (o.bands || []).length; i++){
+    var bd = o.bands[i];
+    ctx.save(); ctx.globalAlpha = bd.alpha === undefined ? 0.35 : bd.alpha;
+    ctx.fillStyle = bd.color;
+    var rx0 = px(bd.x0), rx1 = px(bd.x1), ry0 = py(bd.y1), ry1 = py(bd.y0);
+    ctx.fillRect(Math.min(rx0, rx1), Math.min(ry0, ry1),
+                 Math.abs(rx1 - rx0), Math.abs(ry1 - ry0));
+    ctx.restore();
+  }
   var lines = (o.hlines || []).map(function(d){ return {h:1, d:d}; })
        .concat((o.vlines || []).map(function(d){ return {h:0, d:d}; }));
   for (i = 0; i < lines.length; i++){
@@ -643,6 +732,9 @@ function drawGraph(cv, o){
       ctx.moveTo(mx - r, my - r); ctx.lineTo(mx + r, my + r);
       ctx.moveTo(mx - r, my + r); ctx.lineTo(mx + r, my - r);
       ctx.stroke();
+    } else if (m.sym === 'o'){
+      /* A hollow circle, which is how the script draws a zero. */
+      ctx.beginPath(); ctx.arc(mx, my, r, 0, 6.2832); ctx.stroke();
     } else {
       ctx.beginPath(); ctx.arc(mx, my, r*0.72, 0, 6.2832); ctx.fill();
     }
@@ -664,6 +756,15 @@ function drawGraph(cv, o){
       ctx.font = '11px -apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif';
     }
   }
+  /* The transform, returned so that a page can hit-test a pointer against
+     what was drawn.  Without this a draggable canvas has to re-derive the
+     axis geometry and the two copies drift. */
+  return {
+    px: px, py: py,
+    ix: function(q){ return (q - ox)/sx + X0; },
+    iy: function(q){ return (oy - q)/sy + Y0; },
+    box: [bx0, by0, bx1, by1]
+  };
 }
 function ticksLin(a, b, target){
   var st = niceStep(b - a, target), t = [], v;
@@ -694,16 +795,16 @@ function watchTheme(fn){
 /* =====================================================================
    L11 margin bench: the car of Lecture 10 over a network.
 
-       G(s) = 1/(s(s+1)),   K(s) = k + K_D s,   L(s) = K(s)G(s) e^{-sT}
+       G(s) = 1/(s(s+1)),   K(s) = K_P + K_D s,   L(s) = K(s)G(s) e^{-sT}
 
    Everything the page reports comes out of L, and the numbers reproduce
    the ones printed by code/11_figures.py:
 
-       k = 1   w_c = 0.786   PM = 51.83 deg   delay margin 1151 ms
-       k = 2   w_c = 1.250   PM = 38.67 deg   delay margin  540 ms
-       k = 4   w_c = 1.879   PM = 28.02 deg   delay margin  260 ms
-       k = 8   w_c = 2.741   PM = 20.04 deg   delay margin  128 ms
-       k = 4, K_D = 3:  w_c = 3.108, PM = 84.6 deg, delay margin 475 ms
+       K_P = 1   w_c = 0.786   PM = 51.83 deg   delay margin 1151 ms
+       K_P = 2   w_c = 1.250   PM = 38.67 deg   delay margin  540 ms
+       K_P = 4   w_c = 1.879   PM = 28.02 deg   delay margin  260 ms
+       K_P = 8   w_c = 2.741   PM = 20.04 deg   delay margin  128 ms
+       K_P = 4, K_D = 3:  w_c = 3.108, PM = 84.6 deg, delay margin 475 ms
 
    THE GAIN MARGIN IS INFINITE AT T = 0 and that is not a defect of the
    page: the phase of this loop approaches -180 degrees and never reaches
@@ -723,7 +824,7 @@ function magL(w, k, kd){
 function phaseL(w, k, kd, T){
   return Math.atan2(kd*w, k) - Math.PI/2 - Math.atan(w) - w*T;
 }
-/* |L| is strictly decreasing in w for every k > 0 and K_D >= 0, so the gain
+/* |L| is strictly decreasing in w for every K_P > 0 and K_D >= 0, so the gain
    crossover is unique and bisection cannot miss it. */
 function crossover(k, kd){
   var a = 1e-6, b = 1e6, m;
@@ -810,8 +911,18 @@ function render(){
   var phc = phaseL(wc, k, kd, T);
   var pm  = 180 + phc*180/Math.PI;
   var ok  = stableLoop(k, kd, T, wc);
-  var gm  = gainMargin(k, kd, T).gm;
+  var gmo = gainMargin(k, kd, T);
+  var gm  = gmo.gm, w180 = gmo.w;
   var dm  = ok ? Math.max(0, phc + Math.PI)/wc : 0;
+
+  /* The gain margin is drawn only when it exists.  With no delay the phase of
+     this loop approaches -180 degrees and never arrives, so there is nothing
+     on the negative real axis to measure from and nothing is drawn; add any
+     delay and the marks appear.  m180 is where the curve cuts that axis, so
+     the gain margin is the factor 1/m180 that would carry it out to -1. */
+  var hasGM = isFinite(gm) && isFinite(w180);
+  var m180  = hasGM ? magL(w180, k, kd) : 0;
+  var gmTxt = 'GM = ' + (hasGM ? gm.toFixed(2) : '');
 
   el('s-verdict').textContent = ok ? 'stable' : 'unstable';
   el('s-verdict').className = 'n ' + (ok ? 'ok' : 'no');
@@ -839,11 +950,16 @@ function render(){
       {x: [0, xc], y: [0, yc], color: grey, w: 1, dash: [2, 3]},
       {x: nre, y: nim.map(function(v){ return -v; }), color: blue, w: 1.6, alpha: .35},
       {x: nre, y: nim, color: blue, w: 1.6}
-    ],
+    ].concat(hasGM ? [{x: [-m180, -1], y: [0, 0], color: grey, w: 2.6}] : []),
     marks: [{x: -1, y: 0, color: red, sym: 'x', r: 5},
-            {x: xc, y: yc, color: grey, sym: 'o', r: 4}],
+            {x: xc, y: yc, color: grey, sym: 'o', r: 4}]
+      .concat(hasGM ? [{x: -m180, y: 0, color: grey, sym: 'o', r: 4}] : []),
     texts: [{x: -1, y: 0, s: '−1', color: red, dy: -9},
             {x: xc*0.55, y: yc*0.55, s: 'PM', color: grey, dy: 13}]
+      /* The number goes on the magnitude panel, where there is room for it.
+         Here the segment itself is the reading, and a bare tag keeps it from
+         landing on the PM label when both margins are small. */
+      .concat(hasGM ? [{x: -(m180 + 1)/2, y: 0, s: 'GM', color: grey, dx: -10, dy: 26}] : [])
   });
 
   /* ---- the step response, so the rotation on the left has a price */
@@ -867,9 +983,13 @@ function render(){
     xlabel: 'ω  [rad/s]', ylabel: '|L(iω)|',
     xlim: [W_LO, W_HI], ylim: [1e-2, 1e2], xlog: true, ylog: true,
     hlines: [{v: 1, color: faint, w: 1, dash: [4, 3]}],
-    vlines: [{v: wc, color: grey, w: 1, dash: [2, 3]}],
-    curves: [{x: wbA, y: mg, color: blue, w: 1.6}],
+    vlines: [{v: wc, color: grey, w: 1, dash: [2, 3]}]
+      .concat(hasGM ? [{v: w180, color: red, w: 1, dash: [2, 3]}] : []),
+    curves: [{x: wbA, y: mg, color: blue, w: 1.6}]
+      .concat(hasGM ? [{x: [w180, w180], y: [m180, 1], color: grey, w: 2.6}] : []),
     texts: [{x: wc, y: 40, s: 'ω', sub: 'c', color: grey, align: 'left', dx: 5}]
+      .concat(hasGM ? [{x: w180, y: Math.sqrt(m180), s: gmTxt, color: grey,
+                        align: 'left', base: 'middle', dx: 6}] : [])
   });
 
   /* The window follows the phase AT THE CROSSOVER, not the lowest phase on the
@@ -882,7 +1002,8 @@ function render(){
     xlabel: 'ω  [rad/s]', ylabel: '∠L(iω)  [deg]',
     xlim: [W_LO, W_HI], ylim: [ylo, -60], xlog: true, yticks: yt,
     hlines: [{v: -180, color: red, w: 1, dash: [4, 3]}],
-    vlines: [{v: wc, color: grey, w: 1, dash: [2, 3]}],
+    vlines: [{v: wc, color: grey, w: 1, dash: [2, 3]}]
+      .concat(hasGM ? [{v: w180, color: red, w: 1, dash: [2, 3]}] : []),
     curves: [{x: wbA, y: pd, color: blue, w: 1.6},
              {x: [wc, wc], y: [-180, -180 + pm], color: grey, w: 2.6}],
     texts: [{x: wc, y: -180, s: 'PM = ' + pm.toFixed(0) + '°', color: grey,
@@ -897,7 +1018,8 @@ function render(){
     'destabilize the car. The delay still allowed is the phase margin in radians divided by ' +
     '<i class="v">&omega;</i><sub>c</sub>, and it is exact rather than approximate, because a delay rotates the ' +
     'curve without changing its magnitude and therefore leaves <i class="v">&omega;</i><sub>c</sub> where it was. ' +
-    'Raise <i class="v">k</i> and the loop gets faster while the budget shrinks; that trade is the number to ' +
+    'Raise <i class="v">K</i><sub>P</sub> and the loop gets faster while the budget shrinks; that trade is ' +
+    'the number to ' +
     'carry out of this hour.';
 }
 
