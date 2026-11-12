@@ -183,6 +183,16 @@
             <div class="key"><span class="b">&ang;<i class="v">K</i>(i<i class="v">&omega;</i>)</span></div>
           </div>
         </div>
+        <div class="pair">
+          <div class="panel">
+            <canvas id="c5"></canvas>
+            <div class="key"><span class="b"><i class="v">y</i>(<i class="v">t</i>) to a unit step in <i class="v">r</i></span><span class="f">reference</span></div>
+          </div>
+          <div class="panel">
+            <canvas id="c6"></canvas>
+            <div class="key"><span class="r"><i class="v">u</i>(<i class="v">t</i>), the control input</span></div>
+          </div>
+        </div>
       </div>
     </section>
 
@@ -704,6 +714,11 @@ function drawGraph(cv, o){
     ctx.stroke(); ctx.setLineDash([]);
   }
 
+  /* Opt-in clipping to the axes box, for a panel whose curve legitimately
+     leaves the window (a spike that is labeled rather than scaled to). */
+  if (o.clip){ ctx.save(); ctx.beginPath();
+    ctx.rect(Math.min(bx0, bx1), Math.min(by0, by1),
+             Math.abs(bx1 - bx0), Math.abs(by1 - by0)); ctx.clip(); }
   for (c = 0; c < (o.curves || []).length; c++){
     var cu = o.curves[c], pen = false;
     ctx.globalAlpha = cu.alpha === undefined ? 1 : cu.alpha;
@@ -721,6 +736,7 @@ function drawGraph(cv, o){
     }
     ctx.stroke(); ctx.setLineDash([]); ctx.globalAlpha = 1;
   }
+  if (o.clip) ctx.restore();
 
   for (i = 0; i < (o.marks || []).length; i++){
     var m = o.marks[i], mx = px(m.x), my = py(m.y), r = m.r || 4.5;
@@ -904,6 +920,47 @@ function logspace(a, b, n){
 var WS = logspace(1e-2, 1e3, 700);
 var WP = logspace(1e-4, 1e5, 14000);    /* a wider, denser grid, for the margins */
 
+/* The time grid for the two panels underneath.  Six seconds is fixed rather
+   than fitted to each tuning, for the same reason the frequency axis is fixed:
+   a slider move should move the curve, not the axis.  The step of 2 ms is set
+   by the fastest pole the sliders can ask for, 1/T_F = 100 rad/s. */
+var TT = (function(){ var o = [], n = 3000, i; for (i = 0; i <= n; i++) o.push(6*i/n); return o; })();
+var STEP = TT.map(function(){ return 1; });
+
+/* A plotting range taken from the data but anchored on an interval that is
+   always included, and capped, so that a diverging run still leaves the first
+   second readable instead of flattening everything against the axis. */
+function span(ys, lo0, hi0, cap){
+  var lo = lo0, hi = hi0, i, v;
+  for (i = 0; i < ys.length; i++){
+    v = ys[i];
+    if (!isFinite(v)) continue;
+    if (v < lo) lo = v;
+    if (v > hi) hi = v;
+  }
+  lo = Math.max(lo, -cap); hi = Math.min(hi, cap);
+  var pad = 0.08*(hi - lo) || 0.5;
+  return [lo - pad, hi + pad];
+}
+
+/* The control input opens with a spike whose height is K(infinity), which for
+   a fast filter is two orders above everything that follows it.  Scaling to
+   the spike would flatten the rest of the trace against the axis, so the
+   window is taken from the bulk of the trace and the spike is allowed to leave
+   it, with its height printed.  Quantiles rather than a fixed skip because the
+   spike lasts a few T_F, and T_F is on a slider. */
+function qspan(ys, cap){
+  var v = [], i;
+  for (i = 0; i < ys.length; i++) if (isFinite(ys[i])) v.push(ys[i]);
+  if (!v.length) return [-1, 1];
+  v.sort(function(a, b){ return a - b; });
+  var lo = v[Math.floor(0.015*(v.length - 1))], hi = v[Math.ceil(0.985*(v.length - 1))];
+  lo = Math.max(Math.min(lo, 0), -cap);
+  hi = Math.min(Math.max(hi, 0.5), cap);
+  var pad = 0.12*(hi - lo) || 0.5;
+  return [lo - pad, hi + pad];
+}
+
 function interpAt(ws, ys, w){
   var i;
   for (i = 1; i < ws.length; i++)
@@ -1003,6 +1060,39 @@ function render(){
       color: grey, align: 'left', dx: 6, base: 'middle', dy: pm >= 0 ? -11 : 13}] : []
   });
 
+  /* ---- what the shape buys in time, on the same left-right logic as the
+     rows above it: on the left the loop's output, on the right the effort the
+     controller had to produce to get it.
+
+         y = T r ,   T  = GK/(1+GK) = G_n K_n / P
+         u = K S r , KS = K/(1+GK)  = K_n G_d / P
+
+     KS is biproper, so u jumps at t = 0 to K(infinity) = K_P + K_D/T_F.  That
+     spike is the derivative kick, it is real, and it is the reason T_F is on
+     the page at all, so it is drawn rather than smoothed away. */
+  var yStep = simTF(pconv(GN, k.n), o.P, TT, STEP);
+  var uStep = simTF(pconv(k.n, GD), o.P, TT, STEP);
+  var u0 = S.kp + S.kd/S.tf;
+
+  drawGraph(el('c5'), {
+    xlabel: 't  [s]', ylabel: 'y(t)',
+    xlim: [0, 6], ylim: span(yStep, -0.05, 1.3, 4), xticks: [0, 1, 2, 3, 4, 5, 6],
+    clip: true,
+    hlines: [{v: 1, color: faint, w: 1, dash: [4, 3]}],
+    curves: [{x: TT, y: yStep, color: blue, w: 1.8}]
+  });
+
+  var uy = qspan(uStep, 5*u0 + 20);
+  drawGraph(el('c6'), {
+    xlabel: 't  [s]', ylabel: 'u(t)',
+    xlim: [0, 6], ylim: uy, xticks: [0, 1, 2, 3, 4, 5, 6],
+    clip: true,
+    hlines: [{v: 0, color: faint, w: 1, dash: [4, 3]}],
+    curves: [{x: TT, y: uStep, color: red, w: 1.8}],
+    texts: u0 > uy[1] ? [{x: 0.18, y: uy[1], s: 'u(0⁺) = ' + u0.toFixed(1),
+                          color: grey, align: 'left', base: 'top', dy: 4}] : []
+  });
+
   /* the live corner readout, which is what the dotted lines mark */
   var f = [];
   if (S.ki > 0 && S.kp > 0) f.push('<i>K</i><sub>I</sub>/<i>K</i><sub>P</sub> = ' + (S.ki/S.kp).toFixed(2));
@@ -1019,7 +1109,11 @@ function render(){
     '1/<i>T</i><sub>F</sub>. The shaded regions on the left are this hour\'s specification: the gain must ' +
     'be above one out to 5 rad/s and below one by 30 rad/s. The phase margin is read at the crossover, ' +
     'and the peak of |<i>S</i>| is the distance from the Nyquist curve to &minus;1, which is the ' +
-    'robustness number this chapter uses; aim for 2 or below. The verdict tile takes the roots of the ' +
+    'robustness number this chapter uses; aim for 2 or below. The bottom row is the same loop in time, ' +
+    'on a fixed six-second window: on the left the output under a unit step in the reference, on the ' +
+    'right the control input that produced it. The input jumps at <i>t</i> = 0 to ' +
+    '<i>K</i><sub>P</sub> + <i>K</i><sub>D</sub>/<i>T</i><sub>F</sub>, which is the derivative kick, ' +
+    'and raising <i>T</i><sub>F</sub> is what brings it down. The verdict tile takes the roots of the ' +
     'closed-loop characteristic polynomial rather than reading them off a curve. Start from last week\'s ' +
     'PD, raise <i>K</i><sub>I</sub> until the margin collapses, then raise <i>T</i><sub>F</sub> and watch ' +
     'the derivative\'s phase lead disappear before its gain does.';
