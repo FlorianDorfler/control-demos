@@ -146,9 +146,9 @@
   <header>
     <h1>Loop shaper for the car of Lecture 10</h1>
     <div class="model">
-      <b>Plant</b> <i class="v">G</i>(<i class="v">s</i>) = 1 / (<i class="v">s</i>(<i class="v">s</i> + 1)), the same car, optionally with a zero at <i class="v">s</i> = +2 &nbsp;&middot;&nbsp;
+      <b>Plant</b> <i class="v">G</i>(<i class="v">s</i>) = 1 / (<i class="v">s</i>(<i class="v">s</i> + 1)), the same car &nbsp;&middot;&nbsp;
       <b>Controller</b> one of the three routes of Chapter 12: a lead compensator tuned forward, an inversion design <i class="v">K</i> = <i class="v">L</i><sub>des</sub><i class="v">G</i><sup>&minus;1</sup>, or internal model control with <i class="v">Q</i> = <i class="v">G</i><sup>&minus;1</sup><i class="v">T</i><sub>des</sub> &nbsp;&middot;&nbsp;
-      <b>Setup</b> the specification is drawn behind the curves as a shaded region, and the verdict tile tests the closed-loop characteristic polynomial without cancelling anything, so an unstable pole-zero cancellation is reported rather than hidden.
+      <b>Setup</b> the specification is drawn behind the curves as a shaded region, and the verdict tile tests the closed-loop characteristic polynomial without cancelling anything.
     </div>
   </header>
 
@@ -187,13 +187,6 @@
     </section>
 
     <section class="controls card">
-      <h2>The plant</h2>
-      <div class="presets" id="plants">
-        <button type="button" data-z="0" aria-pressed="true">the car</button>
-        <button type="button" data-z="1">with a zero at +2</button>
-      </div>
-
-      <div class="divider"></div>
       <h2>How you shape it</h2>
       <div class="presets" id="methods">
         <button type="button" data-m="lead" aria-pressed="true">lead, tuned forward</button>
@@ -237,11 +230,10 @@
       <div class="divider"></div>
       <h2>Presets</h2>
       <div class="presets" id="presets">
-        <button type="button" data-p="lead,0,10,0.5,0.2,5.59,0.1,0.2">the script's lead design</button>
-        <button type="button" data-p="lead,0,10,0.5,1,5.59,0.1,0.2">flat gain, no lead</button>
-        <button type="button" data-p="inv,0,10,0.5,0.2,5.59,0.1,0.2">inversion to 5 rad/s</button>
-        <button type="button" data-p="imc,0,10,0.5,0.2,5.59,0.1,0.2">IMC, <i class="v">T</i><sub>F</sub> = 0.2</button>
-        <button type="button" data-p="imc,1,10,0.5,0.2,5.59,0.1,0.2">IMC into the wall</button>
+        <button type="button" data-p="lead,10,0.5,0.2,5.59,0.1,0.2">the script's lead design</button>
+        <button type="button" data-p="lead,10,0.5,1,5.59,0.1,0.2">flat gain, no lead</button>
+        <button type="button" data-p="inv,10,0.5,0.2,5.59,0.1,0.2">inversion to 5 rad/s</button>
+        <button type="button" data-p="imc,10,0.5,0.2,5.59,0.1,0.2">IMC, <i class="v">T</i><sub>F</sub> = 0.2</button>
       </div>
     </section>
   </div>
@@ -793,25 +785,21 @@ function watchTheme(fn){
 /* =====================================================================
    L12 loop shaper: the car of Lectures 10 and 11, shaped three ways.
 
-       G(s) = 1/(s(s+1))              or   (1 - s/2)/(s(s+1))
+       G(s) = 1/(s(s+1))
 
        lead        K = k (T s + 1)/(alpha T s + 1)
        inversion   L_des = K/(s(T s + 1)) ,  K = L_des / G
        IMC         T_des = 1/(T_F s + 1)^2 , Q = T_des/G , K = Q/(1-GQ)
 
-   Each controller is written out in closed form for each plant, so no
-   cancellation is performed numerically and the characteristic polynomial
-   below keeps every factor it should.
+   Each controller is written out in closed form, so no cancellation is
+   performed numerically and the characteristic polynomial below keeps
+   every factor it should.
 
    THE VERDICT TILE IS THE POINT OF THE PAGE.  It takes the roots of
 
        p(s) = num_G num_K + den_G den_K
 
    WITHOUT cancelling common factors, which is what internal stability means.
-   On the plant with the zero at +2 the inversion and IMC routes cancel that
-   zero with a controller pole, every closed-loop curve on the screen looks
-   perfect, and the tile says unstable because p has a root at +2.  Watch the
-   actuator trace in the fourth panel at the same time.
 
    Numbers reproduce the ones printed by code/12_figures.py:
 
@@ -821,22 +809,21 @@ function watchTheme(fn){
        IMC   T_F = 0.2             w_c = 2.429   PM = 76.3 deg
    ===================================================================== */
 
-var S = {m: 'lead', z: 0, k: 10, T: 0.5, al: 0.2, kd: 5.59, Td: 0.1, tf: 0.2};
+var S = {m: 'lead', k: 10, T: 0.5, al: 0.2, kd: 5.59, Td: 0.1, tf: 0.2};
 var el = function(id){ return document.getElementById(id); };
 
 function plant(){
-  return S.z ? {n: [-0.5, 1], d: [1, 1, 0]} : {n: [1], d: [1, 1, 0]};
+  return {n: [1], d: [1, 1, 0]};
 }
 /* The three routes, each written out rather than divided numerically. */
 function controller(){
-  var z = S.z ? [-0.5, 1] : [1];
   if (S.m === 'lead')
     return {n: [S.k*S.T, S.k], d: [S.al*S.T, 1], f:
       'K = k (T s + 1) / (α T s + 1)'};
   if (S.m === 'inv')
-    return {n: [S.kd, S.kd], d: pconv([S.Td, 1], z), f:
+    return {n: [S.kd, S.kd], d: [S.Td, 1], f:
       'L_des = K/(s(T s+1)), K = L_des/G'};
-  return {n: [1, 1], d: pconv(z, [S.tf*S.tf, 2*S.tf]), f:
+  return {n: [1, 1], d: [S.tf*S.tf, 2*S.tf], f:
     'T_des = 1/(T_F s+1)², Q = T_des/G, K = Q/(1-GQ)'};
 }
 
@@ -1005,10 +992,7 @@ function render(){
     '<b>Notes</b> The shaded regions are the specification: the loop gain must stay above one where the ' +
     'reference and the disturbances live, and below one where the measurement noise lives. The verdict ' +
     'tile is not read off these curves. It takes the roots of the closed-loop characteristic polynomial ' +
-    'without cancelling common factors, which is what internal stability means, so a controller that ' +
-    'removes a right-half-plane zero of the plant by putting a pole on top of it is reported as unstable ' +
-    'even while every curve above looks correct. Switch the plant to the one with a zero at +2, choose ' +
-    'inversion or IMC, and watch the output settle beautifully while the actuator trace leaves the panel.';
+    'without cancelling common factors, which is what internal stability means.';
 }
 
 var draw = rafThrottle(render);
@@ -1026,10 +1010,7 @@ function sync(){
   var b = el('methods').querySelectorAll('button'), i;
   for (i = 0; i < b.length; i++)
     b[i].setAttribute('aria-pressed', String(b[i].getAttribute('data-m') === S.m));
-  b = el('plants').querySelectorAll('button');
-  for (i = 0; i < b.length; i++)
-    b[i].setAttribute('aria-pressed', String(+b[i].getAttribute('data-z') === S.z));
-  var tag = [S.m, S.z, S.k, S.T, S.al, S.kd, S.Td, S.tf].join(',');
+  var tag = [S.m, S.k, S.T, S.al, S.kd, S.Td, S.tf].join(',');
   b = el('presets').querySelectorAll('button');
   for (i = 0; i < b.length; i++)
     b[i].setAttribute('aria-pressed', String(b[i].getAttribute('data-p') === tag));
@@ -1043,15 +1024,11 @@ el('methods').addEventListener('click', function(ev){
   var b = ev.target.closest('button'); if (!b) return;
   S.m = b.getAttribute('data-m'); sync();
 });
-el('plants').addEventListener('click', function(ev){
-  var b = ev.target.closest('button'); if (!b) return;
-  S.z = +b.getAttribute('data-z'); sync();
-});
 el('presets').addEventListener('click', function(ev){
   var b = ev.target.closest('button'); if (!b) return;
   var p = b.getAttribute('data-p').split(',');
-  S.m = p[0]; S.z = +p[1];
-  S.k = +p[2]; S.T = +p[3]; S.al = +p[4]; S.kd = +p[5]; S.Td = +p[6]; S.tf = +p[7];
+  S.m = p[0];
+  S.k = +p[1]; S.T = +p[2]; S.al = +p[3]; S.kd = +p[4]; S.Td = +p[5]; S.tf = +p[6];
   el('k').value = S.k; el('T').value = S.T; el('al').value = S.al;
   el('kd').value = S.kd; el('Td').value = S.Td; el('tf').value = S.tf;
   sync();
