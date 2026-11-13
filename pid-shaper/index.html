@@ -44,6 +44,10 @@
     font-size:12.5px; color:var(--muted);
   }
   .model b{color:var(--ink); font-weight:600}
+  /* A specification list inside the header box: tight, so the box still
+     reads as one paragraph of setup rather than becoming a section. */
+  .model ul{margin:4px 0 6px; padding-left:17px}
+  .model li{margin:2px 0}
   i.v{font-family:Georgia,"Times New Roman",serif; font-style:italic}
   /* A combining mark placed after an italic letter sits to the letter's right
      rather than over it. This centres a spacing accent over the letter's own
@@ -147,8 +151,15 @@
     <h1>PID loop shaper for the car of Lecture 10</h1>
     <div class="model">
       <b>Plant</b> <i class="v">G</i>(<i class="v">s</i>) = 1 / (<i class="v">s</i>(<i class="v">s</i> + 1)), the car of Lectures 10 and 11 &nbsp;&middot;&nbsp;
-      <b>Controller</b> <i class="v">K</i>(<i class="v">s</i>) = <i class="v">K</i><sub>P</sub> + <i class="v">K</i><sub>I</sub>/<i class="v">s</i> + <i class="v">K</i><sub>D</sub><i class="v">s</i>/(<i class="v">T</i><sub>F</sub><i class="v">s</i> + 1), with the three gains on independent sliders and the derivative filter below the divider &nbsp;&middot;&nbsp;
-      <b>Setup</b> the left column is the loop <i class="v">L</i> = <i class="v">GK</i>, drawn against the specification of this hour, a crossover of at least 5 rad/s with the gain down again by 30 rad/s, and the right column is the controller <i class="v">K</i> that produced it.
+      <b>Controller</b> <i class="v">K</i>(<i class="v">s</i>) = <i class="v">K</i><sub>P</sub> + <i class="v">K</i><sub>I</sub>/<i class="v">s</i> + <i class="v">K</i><sub>D</sub><i class="v">s</i>/(<i class="v">T</i><sub>F</sub><i class="v">s</i> + 1), with the three gains on independent sliders and the derivative filter below the divider.
+      <b>Specifications:</b>
+      <ul>
+        <li><b>Stationary behavior:</b> no steady-state error to a step. The plant's own integrator already supplies it, so what <i class="v">K</i><sub>I</sub> buys here is the ramp, where <i class="v">K</i><sub>I</sub> = 0 leaves the error 1/<i class="v">K</i><sub>P</sub>.</li>
+        <li><b>Dynamic performance:</b> |<i class="v">L</i>| &gt; 1 out to 5 rad/s, so <i class="v">&omega;</i><sub>c</sub> &ge; 5 rad/s. The lower shaded band is what that forbids.</li>
+        <li><b>Robust stability:</b> a phase margin of 60&deg; or better at the crossover.</li>
+        <li><b>Noise rejection:</b> |<i class="v">L</i>| &lt; 1 again beyond 30 rad/s, which is the upper shaded band.</li>
+      </ul>
+      <b>Setup</b> the left column is the loop <i class="v">L</i> = <i class="v">GK</i>, the right column is the controller <i class="v">K</i> that produced it, and the bottom row is the same loop in time.
     </div>
   </header>
 
@@ -1099,7 +1110,11 @@ function render(){
   if (S.kd > 0 && S.kp > 0) f.push('<i>K</i><sub>P</sub>/<i>K</i><sub>D</sub> = ' + (S.kp/S.kd).toFixed(2));
   f.push('1/<i>T</i><sub>F</sub> = ' + (1/S.tf).toFixed(0));
   el('formula').innerHTML = 'Corners of <i>K</i>, in rad/s: ' + f.join(', ') + '.'
-    + (S.ki > 0 ? '' : ' No integrator, so <i>S</i>(0) is not zero.');
+    + (S.ki > 0
+        ? ' The integrator in <i>K</i> takes the ramp error to zero as well.'
+        : ' No integrator in <i>K</i>, so the step is still exact but a ramp leaves the error '
+          + (S.kp > 0 ? '1/<i>K</i><sub>P</sub> = ' + (1/S.kp).toFixed(2) + '.'
+                      : 'unbounded.'));
 
   el('note').innerHTML =
     '<b>Notes</b> The left column is the loop and the right column is the controller that produced it, on ' +
