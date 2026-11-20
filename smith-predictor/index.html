@@ -1,0 +1,545 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Smith predictor tuner</title>
+<style>
+:root{
+  --bg:#ffffff; --fg:#1d2127; --muted:#6E737A; --rule:#e3e6ea; --card:#fafbfc;
+  --tint:#f4f6f8;
+  --blue:#4E74A6; --red:#AF5A46; --grey:#6E737A; --faint:#BFC4CB;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#15181c; --fg:#e7eaee; --muted:#9BA1A8; --rule:#2b3036; --card:#1b1f24;
+    --tint:#1e232a;
+    --blue:#84A6D6; --red:#D4866E; --grey:#9BA1A8; --faint:#49505A;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#15181c; --fg:#e7eaee; --muted:#9BA1A8; --rule:#2b3036; --card:#1b1f24;
+  --tint:#1e232a;
+  --blue:#84A6D6; --red:#D4866E; --grey:#9BA1A8; --faint:#49505A;
+}
+*{box-sizing:border-box}
+body{
+  margin:0; background:var(--bg); color:var(--fg);
+  font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;
+  padding:24px max(16px,env(safe-area-inset-right)) 40px max(16px,env(safe-area-inset-left));
+}
+.wrap{max-width:1180px;margin:0 auto}
+h1{font-size:21px;font-weight:600;margin:0 0 14px;letter-spacing:-.01em}
+i.v{font-family:Georgia,"Times New Roman",serif;font-style:italic}
+.model{
+  background:var(--tint);border:1px solid var(--rule);border-left:3px solid var(--blue);
+  border-radius:4px;padding:11px 14px;margin:0 0 18px;font-size:13.5px;color:var(--fg)
+}
+.model b{color:var(--blue);font-weight:600}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(118px,1fr));gap:10px;margin-bottom:18px}
+.stat{background:var(--card);border:1px solid var(--rule);border-radius:4px;padding:9px 11px}
+.stat .k{font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.stat .k .lo,.stat .k i.v{text-transform:none}
+.stat .n{font-size:19px;font-weight:600;margin-top:3px;font-variant-numeric:tabular-nums}
+.stat .n.warn{color:var(--red)}
+.cols{display:grid;grid-template-columns:300px minmax(0,1fr);gap:18px;align-items:start}
+@media (max-width:860px){.cols{grid-template-columns:1fr}.controls{position:static!important;order:2}.plots{order:1}}
+.card{background:var(--card);border:1px solid var(--rule);border-radius:5px;padding:14px}
+.controls{position:sticky;top:16px}
+.panel{position:relative;margin-bottom:6px}
+.panel canvas{width:100%;display:block}
+.key{position:absolute;top:4px;right:8px;font-size:11.5px;display:flex;gap:11px}
+.row{margin-bottom:13px}
+.row .lab{display:flex;justify-content:space-between;align-items:baseline;font-size:12.5px;margin-bottom:3px}
+.row .lab .val{font-variant-numeric:tabular-nums;color:var(--muted)}
+input[type=range]{width:100%;accent-color:var(--blue);margin:0}
+.presets{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px}
+button{
+  font:12.5px/1 inherit;padding:7px 9px;border:1px solid var(--rule);border-radius:4px;
+  background:var(--bg);color:var(--fg);cursor:pointer
+}
+button:hover{border-color:var(--blue);color:var(--blue)}
+.divider{height:1px;background:var(--rule);margin:16px 0 13px}
+.sub{color:var(--muted);font-size:11.5px;letter-spacing:.05em;text-transform:uppercase;margin-bottom:9px}
+.sub .lo{text-transform:none}
+.muted-group .row .lab{color:var(--muted)}
+footer{margin-top:22px;font-size:12.5px;color:var(--muted);line-height:1.6}
+footer b{color:var(--fg)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>Smith predictor tuner for the delayed first-order loop</h1>
+
+<p class="model">
+  <b>Plant:</b> <i class="v">G</i>(<i class="v">s</i>)&thinsp;=&thinsp;1/(<i class="v">s</i>&thinsp;+&thinsp;1)
+  behind a transport delay <i class="v">e</i><sup>&minus;&lambda;<i class="v">s</i></sup>, so the loop
+  measures what the plant did &lambda; seconds ago &middot;
+  <b>Controller:</b> the PI of Lecture&nbsp;12,
+  <i class="v">K</i>(<i class="v">s</i>)&thinsp;=&thinsp;<i class="v">K</i><sub>P</sub>&thinsp;+&thinsp;<i class="v">K</i><sub>I</sub>/<i class="v">s</i>,
+  designed as if there were no delay &middot;
+  <b>Predictor:</b> the inner path
+  <i class="v">G&#770;</i>&thinsp;(1&thinsp;&minus;&thinsp;<i class="v">e</i><sup>&minus;&lambda;&#770;<i class="v">s</i></sup>)
+  around the controller, carrying what the model says the plant has already
+  done but the delay has not yet delivered &middot;
+  <b>Setup:</b> a unit step in the reference at <i class="v">t</i>&thinsp;=&thinsp;0,
+  with the same controller run twice: once closed straight around the delayed
+  plant, and once with the predictor.
+</p>
+
+<div class="stats">
+  <div class="stat"><div class="k">crossover <span class="lo">&omega;<sub>c</sub></span></div><div class="n" id="s-wc">&ndash;</div></div>
+  <div class="stat"><div class="k">delay margin</div><div class="n" id="s-dm">&ndash;</div></div>
+  <div class="stat"><div class="k">phase margin, no predictor</div><div class="n" id="s-pm">&ndash;</div></div>
+  <div class="stat"><div class="k">overshoot, predictor</div><div class="n" id="s-os">&ndash;</div></div>
+  <div class="stat"><div class="k">settling, predictor</div><div class="n" id="s-ts">&ndash;</div></div>
+</div>
+
+<div class="cols">
+
+  <div class="card controls">
+    <div class="row">
+      <div class="lab"><span>true delay <i class="v">&lambda;</i></span><span class="val" id="v-lam">1.00 s</span></div>
+      <input type="range" id="r-lam" min="0" max="4" step="0.05" value="1">
+    </div>
+    <div class="row">
+      <div class="lab"><span>model delay <i class="v">&lambda;&#770;</i>&thinsp;</span><span class="val" id="v-lh">1.00 s</span></div>
+      <input type="range" id="r-lh" min="0" max="4" step="0.05" value="1">
+    </div>
+    <div class="row">
+      <div class="lab"><span>proportional gain <i class="v">K</i><sub>P</sub></span><span class="val" id="v-kp">1.00</span></div>
+      <input type="range" id="r-kp" min="0" max="4" step="0.05" value="1">
+    </div>
+    <div class="row">
+      <div class="lab"><span>integral gain <i class="v">K</i><sub>I</sub></span><span class="val" id="v-ki">1.00</span></div>
+      <input type="range" id="r-ki" min="0" max="4" step="0.05" value="1">
+    </div>
+
+    <div class="presets">
+      <button data-p="nodelay">No delay</button>
+      <button data-p="exact">&lambda; = 1 s, exact model</button>
+      <button data-p="mismatch">40&thinsp;% error in &lambda;&#770;</button>
+      <button data-p="unstable">&lambda; = 2 s, past the margin</button>
+    </div>
+
+    <div class="divider"></div>
+    <div class="sub">model of the plant <span class="lo"><i class="v">G&#770;</i></span></div>
+    <div class="muted-group">
+      <div class="row">
+        <div class="lab"><span>model gain <i class="v">g&#770;</i>&thinsp;</span><span class="val" id="v-gh">1.00</span></div>
+        <input type="range" id="r-gh" min="0.4" max="2" step="0.02" value="1">
+      </div>
+      <div class="row">
+        <div class="lab"><span>model time constant <i class="v">&tau;&#770;</i>&thinsp;</span><span class="val" id="v-th">1.00 s</span></div>
+        <input type="range" id="r-th" min="0.3" max="3" step="0.02" value="1">
+      </div>
+    </div>
+  </div>
+
+  <div class="card plots">
+    <div class="panel">
+      <canvas id="c-y"></canvas>
+      <div class="key"><span id="k-y1">with predictor</span><span id="k-y2">no predictor</span></div>
+    </div>
+    <div class="panel">
+      <canvas id="c-u"></canvas>
+      <div class="key"><span id="k-u1">with predictor</span><span id="k-u2">no predictor</span></div>
+    </div>
+    <div class="panel">
+      <canvas id="c-n"></canvas>
+      <div class="key"><span id="k-n1">delayed loop</span><span id="k-n2">delay-free</span></div>
+    </div>
+  </div>
+
+</div>
+
+<footer>
+  <b>Notes.</b>
+  The crossover <i class="v">&omega;</i><sub>c</sub> and the phase margin are read off
+  <i class="v">L</i>(<i class="v">s</i>)&thinsp;=&thinsp;<i class="v">K</i>(<i class="v">s</i>)<i class="v">G</i>(<i class="v">s</i>),
+  the loop the controller was designed against. A transport delay does not change
+  <i class="v">L</i>'s magnitude, so it moves no crossover; it subtracts
+  &lambda;<i class="v">&omega;</i><sub>c</sub> radians of phase there, and the delay margin
+  is the phase margin of the delay-free design divided by
+  <i class="v">&omega;</i><sub>c</sub>. With the default PI the zero cancels the plant pole,
+  <i class="v">L</i>&thinsp;=&thinsp;1/<i class="v">s</i>, the crossover is at 1 rad/s and the
+  delay margin is exactly &pi;/2&thinsp;&asymp;&thinsp;1.57 s.
+  Overshoot and settling time (2&thinsp;%) are measured on the predictor's response.
+  With an exact model the predictor's closed loop is
+  <i class="v">T</i>(<i class="v">s</i>)<i class="v">e</i><sup>&minus;&lambda;<i class="v">s</i></sup>:
+  the delay-free design, delayed. The delay is not removed, it is moved out of the
+  loop and onto the output, which is the one thing this page is here to show.
+</footer>
+
+</div>
+
+<script>
+// ---------------------------------------------------------------- theme
+function tok(n){ return getComputedStyle(document.documentElement).getPropertyValue(n).trim(); }
+
+// ---------------------------------------------------------------- plotting
+// One panel routine for every canvas.  Curves are {x, y, color, w, dash, kind}
+// with kind 'line' (default) or 'dots'.  A non-finite y lifts the pen, which
+// is how a divergent run is drawn without a vertical spike.
+function drawPanel(cv, o){
+  const dpr = window.devicePixelRatio || 1;
+  const W = cv.clientWidth, H = o.height || 200;
+  cv.width = Math.round(W*dpr); cv.height = Math.round(H*dpr);
+  cv.style.height = H+"px";
+  const g = cv.getContext("2d");
+  g.setTransform(dpr,0,0,dpr,0,0);
+  g.clearRect(0,0,W,H);
+
+  const fg = tok("--fg"), muted = tok("--muted"), rule = tok("--rule");
+  const L = o.padl===undefined ? 48 : o.padl, R = 12, T = 10, B = 30;
+  const pw = W-L-R, ph = H-T-B;
+
+  let x0 = o.xmin, x1 = o.xmax, y0, y1;
+  if (o.ylim){ y0 = o.ylim[0]; y1 = o.ylim[1]; }
+  else {
+    let lo = Infinity, hi = -Infinity;
+    for (const c of o.curves) for (let i=0;i<c.y.length;i++){
+      const v = c.y[i];
+      if (!isFinite(v)) continue;
+      if (o.cap!==undefined && Math.abs(v) > o.cap) continue;
+      if (c.x[i] < x0 || c.x[i] > x1) continue;
+      if (v<lo) lo=v; if (v>hi) hi=v;
+    }
+    if (!isFinite(lo)){ lo=-1; hi=1; }
+    const m = 0.08*(hi-lo || 1); y0 = lo-m; y1 = hi+m;
+  }
+  const X = v => L + (v-x0)/(x1-x0)*pw;
+  const Y = v => T + (y1-v)/(y1-y0)*ph;
+
+  // grid and ticks
+  g.strokeStyle = rule; g.lineWidth = 1; g.font = "11px -apple-system,Helvetica,Arial,sans-serif";
+  g.fillStyle = muted; g.textAlign = "center"; g.textBaseline = "top";
+  const xt = o.xticks || niceTicks(x0,x1,5);
+  for (const t of xt){
+    const px = Math.round(X(t))+0.5;
+    g.beginPath(); g.moveTo(px,T); g.lineTo(px,T+ph); g.stroke();
+    g.fillText(fmt(t), px, T+ph+6);
+  }
+  g.textAlign = "right"; g.textBaseline = "middle";
+  const yt = o.yticks || niceTicks(y0,y1,4);
+  for (const t of yt){
+    if (t<y0 || t>y1) continue;
+    const py = Math.round(Y(t))+0.5;
+    g.beginPath(); g.moveTo(L,py); g.lineTo(L+pw,py); g.stroke();
+    g.fillText(fmt(t), L-7, py);
+  }
+  // axes
+  g.strokeStyle = tok("--faint"); g.beginPath();
+  g.moveTo(L+0.5,T); g.lineTo(L+0.5,T+ph); g.lineTo(L+pw,T+ph); g.stroke();
+
+  if (o.hline !== undefined){
+    g.strokeStyle = tok("--faint"); g.setLineDash([4,3]); g.lineWidth = 1;
+    const py = Math.round(Y(o.hline))+0.5;
+    g.beginPath(); g.moveTo(L,py); g.lineTo(L+pw,py); g.stroke(); g.setLineDash([]);
+  }
+  if (o.vline !== undefined){
+    g.strokeStyle = tok("--faint"); g.setLineDash([4,3]);
+    const px = Math.round(X(o.vline))+0.5;
+    g.beginPath(); g.moveTo(px,T); g.lineTo(px,T+ph); g.stroke(); g.setLineDash([]);
+  }
+
+  g.save(); g.beginPath(); g.rect(L,T,pw,ph); g.clip();
+  for (const c of o.curves){
+    g.strokeStyle = c.color; g.lineWidth = c.w || 1.7;
+    g.setLineDash(c.dash || []);
+    if (c.kind === "dots"){
+      g.fillStyle = c.color;
+      for (let i=0;i<c.x.length;i++){
+        if (!isFinite(c.y[i])) continue;
+        g.beginPath(); g.arc(X(c.x[i]),Y(c.y[i]),1.6,0,6.2832); g.fill();
+      }
+      continue;
+    }
+    g.beginPath(); let pen = false;
+    for (let i=0;i<c.x.length;i++){
+      const v = c.y[i];
+      if (!isFinite(v)){ pen = false; continue; }
+      const px = X(c.x[i]), py = Y(v);
+      if (!pen){ g.moveTo(px,py); pen = true; } else g.lineTo(px,py);
+    }
+    g.stroke();
+  }
+  if (o.marks) for (const m of o.marks){
+    g.setLineDash([]); g.strokeStyle = m.color; g.lineWidth = 1.4;
+    const px = X(m.x), py = Y(m.y), r = 4;
+    g.beginPath(); g.moveTo(px-r,py-r); g.lineTo(px+r,py+r);
+    g.moveTo(px-r,py+r); g.lineTo(px+r,py-r); g.stroke();
+  }
+  g.setLineDash([]); g.restore();
+
+  // labels
+  g.fillStyle = muted; g.font = "11.5px -apple-system,Helvetica,Arial,sans-serif";
+  if (o.xlabel){ g.textAlign="center"; g.textBaseline="bottom"; g.fillText(o.xlabel, L+pw/2, H-1); }
+  if (o.ylabel){
+    g.save(); g.translate(11, T+ph/2); g.rotate(-Math.PI/2);
+    g.textAlign="center"; g.textBaseline="top"; g.fillText(o.ylabel, 0, 0); g.restore();
+  }
+}
+
+function fmt(v){
+  if (Math.abs(v) < 1e-9) return "0";
+  const a = Math.abs(v);
+  if (a >= 100) return v.toFixed(0);
+  if (a >= 10)  return v.toFixed(0);
+  if (a >= 1)   return (Math.abs(v-Math.round(v))<1e-9) ? v.toFixed(0) : v.toFixed(1);
+  return v.toFixed(a<0.1 ? 2 : 1);
+}
+function niceTicks(a,b,n){
+  const span = b-a; if (!(span>0)) return [a];
+  const raw = span/n, mag = Math.pow(10, Math.floor(Math.log10(raw)));
+  const norm = raw/mag;
+  const step = (norm<1.5?1:norm<3?2:norm<7?5:10)*mag;
+  const out = []; let t = Math.ceil(a/step)*step;
+  for (; t<=b+1e-9; t+=step) out.push(Math.abs(t)<1e-12?0:t);
+  return out;
+}
+
+// ---------------------------------------------------------------- misc
+function bisect(f, lo, hi, it){
+  let a = lo, b = hi;
+  for (let i=0;i<(it||60);i++){ const m = 0.5*(a+b); if (f(m) > 0) a = m; else b = m; }
+  return 0.5*(a+b);
+}
+function throttle(fn){
+  let q = false;
+  return function(){ if (q) return; q = true;
+    requestAnimationFrame(function(){ q = false; fn(); }); };
+}
+
+// ===================================================================
+// THE DELAYED FIRST-ORDER LOOP OF LECTURE 13, run twice on every frame:
+// once with the controller closed straight around the delayed plant, and
+// once with the Smith predictor.  Plant and controller are small enough to
+// check by hand, which is the whole reason the deck uses them:
+//
+//     G(s) = 1/(s+1),   K(s) = K_P + K_I/s,   delay e^{-lambda s}
+//
+// With K_P = K_I = 1 the PI zero cancels the plant pole, so L = 1/s, the
+// crossover is at 1 rad/s whatever the delay is, and the delay margin is
+// exactly pi/2 = 1.5708 s.  Past that the loop without the predictor is
+// unstable; the one with it is the delay-free design, delayed.
+// ===================================================================
+
+const H = 1e-3;          // integration step, and the delay buffers' grid
+const TSIM = 30.0;       // simulate this long
+const NSIM = Math.round(TSIM / H);
+const DRAW = 2200;       // points actually drawn
+
+const P = { lam: 1, lh: 1, kp: 1, ki: 1, gh: 1, th: 1 };
+
+const PRESETS = {
+  nodelay:  { lam: 0,    lh: 0,    kp: 1, ki: 1, gh: 1, th: 1 },
+  exact:    { lam: 1,    lh: 1,    kp: 1, ki: 1, gh: 1, th: 1 },
+  mismatch: { lam: 1,    lh: 0.6,  kp: 1, ki: 1, gh: 1, th: 1 },
+  unstable: { lam: 2,    lh: 2,    kp: 1, ki: 1, gh: 1, th: 1 }
+};
+
+// ------------------------------------------------------------ frequency
+// |L(iw)| = sqrt(kp^2 w^2 + ki^2) / (w sqrt(w^2+1)),  which is monotone
+// decreasing, so one bisection finds the crossover.
+function magL(w, kp, ki){
+  return Math.sqrt(kp*kp*w*w + ki*ki) / (w * Math.sqrt(w*w + 1));
+}
+function phaseL(w, kp, ki){          // radians, delay excluded
+  return Math.atan2(kp*w, ki) - Math.PI/2 - Math.atan(w);
+}
+function margins(p){
+  if (p.kp <= 0 && p.ki <= 0) return { wc: NaN, pm0: NaN, dm: NaN, pm: NaN };
+  const wc = bisect(w => magL(w, p.kp, p.ki) - 1, 1e-4, 1e4);
+  const pm0 = Math.PI + phaseL(wc, p.kp, p.ki);     // delay-free, radians
+  return { wc: wc, pm0: pm0, dm: pm0 / wc, pm: pm0 - p.lam * wc };
+}
+
+// ------------------------------------------------------------ time domain
+// Exact zero-order-hold update for each first-order state, a forward Euler
+// integrator in the controller, and an integer-sample transport delay.  At
+// H = 1 ms against a loop bandwidth of about 1 rad/s that is far finer than
+// anything the page can show.
+function simulate(p){
+  const n = NSIM;
+  const N  = Math.round(p.lam / H);          // true delay, in samples
+  const Nh = Math.round(p.lh  / H);          // model delay, in samples
+  const a  = Math.exp(-H),        b  = 1 - Math.exp(-H);
+  const am = Math.exp(-H / p.th), bm = p.gh * (1 - Math.exp(-H / p.th));
+
+  const ya = new Float64Array(n), ua = new Float64Array(n);   // no predictor
+  const yb = new Float64Array(n), ub = new Float64Array(n);   // predictor
+  const bufA = new Float64Array(n + N + 2);                   // u, loop A
+  const bufB = new Float64Array(n + N + 2);                   // u, loop B
+  const bufM = new Float64Array(n + Nh + 2);                  // model output
+
+  let xa = 0, Ia = 0, xb = 0, Ib = 0, xm = 0;
+  let blewA = false, blewB = false;
+
+  for (let k = 0; k < n; k++){
+    ya[k] = xa; yb[k] = xb;
+    bufM[k] = xm;          // written before it is read, so lh = 0 is a no-op
+
+    // ---- loop A: the controller closed straight around the delayed plant
+    let uA = 0;
+    if (!blewA){
+      const e = 1 - xa;
+      uA = p.kp * e + p.ki * Ia;
+      Ia += H * e;
+      if (!isFinite(xa) || Math.abs(xa) > 1e7){ blewA = true; }
+    }
+    if (blewA){ ya[k] = NaN; ua[k] = NaN; } else { ua[k] = uA; }
+
+    // ---- loop B: the same controller, with the Smith predictor.  The inner
+    //      path feeds back G-hat(1 - e^{-lh s}) u around the controller.
+    let uB = 0;
+    if (!blewB){
+      const md = (k - Nh >= 0) ? bufM[k - Nh] : 0;
+      const e = 1 - (xb + xm - md);
+      uB = p.kp * e + p.ki * Ib;
+      Ib += H * e;
+      if (!isFinite(xb) || Math.abs(xb) > 1e7){ blewB = true; }
+    }
+    if (blewB){ yb[k] = NaN; ub[k] = NaN; } else { ub[k] = uB; }
+
+    bufA[k] = blewA ? 0 : uA;
+    bufB[k] = blewB ? 0 : uB;
+
+    const dA = (k - N >= 0) ? bufA[k - N] : 0;
+    const dB = (k - N >= 0) ? bufB[k - N] : 0;
+    if (!blewA) xa = a * xa + b * dA;
+    if (!blewB){ xb = a * xb + b * dB; xm = am * xm + bm * uB; }
+  }
+  return { ya: ya, ua: ua, yb: yb, ub: ub };
+}
+
+// ------------------------------------------------------------ metrics
+function overshoot(y){
+  let m = -Infinity;
+  for (let i = 0; i < y.length; i++) if (isFinite(y[i]) && y[i] > m) m = y[i];
+  return isFinite(m) ? 100 * (m - 1) : NaN;
+}
+function settling(y){
+  let last = NaN;
+  for (let i = y.length - 1; i >= 0; i--){
+    if (!isFinite(y[i])) return NaN;
+    if (Math.abs(y[i] - 1) > 0.02){ last = (i + 1) * H; break; }
+  }
+  return last;
+}
+function peak(y){
+  let m = 0;
+  for (let i = 0; i < y.length; i++){
+    if (!isFinite(y[i])) return Infinity;
+    const a = Math.abs(y[i]); if (a > m) m = a;
+  }
+  return m;
+}
+
+// ------------------------------------------------------------ the page
+const EL = id => document.getElementById(id);
+const RANGES = { lam: "r-lam", lh: "r-lh", kp: "r-kp", ki: "r-ki", gh: "r-gh", th: "r-th" };
+
+function readSliders(){
+  for (const k in RANGES) P[k] = parseFloat(EL(RANGES[k]).value);
+}
+function writeSliders(){
+  for (const k in RANGES) EL(RANGES[k]).value = P[k];
+}
+function labels(){
+  EL("v-lam").textContent = P.lam.toFixed(2) + " s";
+  EL("v-lh").textContent  = P.lh.toFixed(2) + " s";
+  EL("v-kp").textContent  = P.kp.toFixed(2);
+  EL("v-ki").textContent  = P.ki.toFixed(2);
+  EL("v-gh").textContent  = P.gh.toFixed(2);
+  EL("v-th").textContent  = P.th.toFixed(2) + " s";
+}
+
+function render(){
+  labels();
+  const m = margins(P);
+  const s = simulate(P);
+
+  const xmax = Math.min(TSIM, Math.max(12, 6 + 3.2 * P.lam));
+  const step = Math.max(1, Math.floor(NSIM * (xmax / TSIM) / DRAW));
+  const t = [], ya = [], ua = [], yb = [], ub = [];
+  for (let i = 0; i * H <= xmax; i += step){
+    t.push(i * H); ya.push(s.ya[i]); ua.push(s.ua[i]); yb.push(s.yb[i]); ub.push(s.ub[i]);
+  }
+
+  const BLUE = tok("--blue"), GREY = tok("--grey"), FAINT = tok("--faint"), RED = tok("--red");
+  EL("k-y1").style.color = BLUE; EL("k-y2").style.color = GREY;
+  EL("k-u1").style.color = BLUE; EL("k-u2").style.color = GREY;
+  EL("k-n1").style.color = GREY; EL("k-n2").style.color = FAINT;
+
+  let os = overshoot(s.yb);
+  if (Math.abs(os) < 0.05) os = 0;
+  const ts = settling(s.yb), blew = !isFinite(peak(s.yb));
+  EL("s-wc").textContent = m.wc.toFixed(2) + " rad/s";
+  EL("s-dm").textContent = m.dm.toFixed(2) + " s";
+  const pmdeg = m.pm * 180 / Math.PI;
+  EL("s-pm").textContent = (pmdeg >= 0 ? "+" : "") + pmdeg.toFixed(1) + "°";
+  EL("s-pm").className = "n" + (pmdeg <= 0 ? " warn" : "");
+  EL("s-os").textContent = blew ? "unstable" : os.toFixed(1) + " %";
+  EL("s-os").className = "n" + (blew || os > 25 ? " warn" : "");
+  EL("s-ts").textContent = (!blew && isFinite(ts)) ? ts.toFixed(1) + " s" : "–";
+
+  drawPanel(EL("c-y"), {
+    xmin: 0, xmax: xmax, height: 196, hline: 1, vline: P.lam > 0 ? P.lam : undefined,
+    cap: 6, xlabel: "t  [s]", ylabel: "y(t)  to a step in r",
+    curves: [
+      { x: t, y: ya, color: GREY, w: 1.5 },
+      { x: t, y: yb, color: BLUE, w: 1.9 }
+    ]
+  });
+  drawPanel(EL("c-u"), {
+    xmin: 0, xmax: xmax, height: 150, hline: 0, cap: 12,
+    xlabel: "t  [s]", ylabel: "u(t)",
+    curves: [
+      { x: t, y: ua, color: GREY, w: 1.4 },
+      { x: t, y: ub, color: BLUE, w: 1.8 }
+    ]
+  });
+
+  // Nyquist of the loop the controller actually faces.  The delay does not
+  // move the magnitude, it winds the curve toward -1, and the page is at the
+  // boundary when it touches it.
+  const nq = { xd: [], yd: [], x0: [], y0: [] };
+  for (let i = 0; i <= 900; i++){
+    const w = Math.pow(10, -1.3 + i / 900 * 2.6);
+    const mag = magL(w, P.kp, P.ki), ph = phaseL(w, P.kp, P.ki);
+    nq.x0.push(mag * Math.cos(ph));           nq.y0.push(mag * Math.sin(ph));
+    nq.xd.push(mag * Math.cos(ph - P.lam*w)); nq.yd.push(mag * Math.sin(ph - P.lam*w));
+  }
+  drawPanel(EL("c-n"), {
+    xmin: -2.6, xmax: 1.2, ylim: [-2.2, 0.6], height: 170, padl: 44,
+    xticks: [-2,-1,0,1], yticks: [-2,-1,0],
+    xlabel: "Re L(iω)", ylabel: "Im L(iω)",
+    curves: [
+      { x: nq.x0, y: nq.y0, color: FAINT, w: 1.4, dash: [4,3] },
+      { x: nq.xd, y: nq.yd, color: GREY,  w: 1.7 }
+    ],
+    marks: [{ x: -1, y: 0, color: RED }]
+  });
+}
+
+const redraw = throttle(render);
+
+function init(){
+  for (const k in RANGES) EL(RANGES[k]).addEventListener("input", function(){ readSliders(); redraw(); });
+  document.querySelectorAll("button[data-p]").forEach(function(b){
+    b.addEventListener("click", function(){
+      const p = PRESETS[b.getAttribute("data-p")];
+      for (const k in p) P[k] = p[k];
+      writeSliders(); redraw();
+    });
+  });
+  window.addEventListener("resize", redraw);
+  if (window.matchMedia) window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", redraw);
+  writeSliders(); render();
+}
+if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init); else init();
+</script>
+</body>
+</html>
