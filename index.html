@@ -111,12 +111,12 @@
        puts a zero at <i class="v">s</i> = +2 into the plant, and all three run into one wall.</p>
   </a>
 
-  <a class="demo" href="pairing-bench/">
+  <a class="demo" href="smith-predictor/">
     <div class="lec">Lecture 13 &middot; augmented architectures</div>
-    <h2>Pairing bench for a two-by-two plant</h2>
-    <p>Two decentralized loops, each designed as if the other did not exist, on a plant whose
-       coupling you control. Watch the closed-loop poles cross over at the frequency where the
-       relative gain array changes sign, and the transmission zero walk in behind them.</p>
+    <h2>Smith predictor tuner for the delayed loop</h2>
+    <p>Drag the transport delay past the loop's own delay margin and watch the PI design
+       that was fine a moment ago fall over, while the same controller with the predictor
+       around it returns the delay-free response, arriving later and otherwise unchanged.</p>
   </a>
 
   <a class="demo" href="aliasing-bench/">
