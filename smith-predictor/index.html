@@ -124,6 +124,14 @@ footer b{color:var(--fg)}
     </div>
 
     <div class="divider"></div>
+    <div class="sub">plotted window</div>
+    <div class="muted-group">
+      <div class="row">
+        <div class="lab"><span>time shown</span><span class="val" id="v-tw">16 s</span></div>
+        <input type="range" id="r-tw" min="6" max="60" step="1" value="16">
+      </div>
+    </div>
+
     <div class="sub">model of the plant <span class="lo"><i class="v">G&#770;</i></span></div>
     <div class="muted-group">
       <div class="row">
@@ -327,17 +335,20 @@ function throttle(fn){
 // ===================================================================
 
 const H = 1e-3;          // integration step, and the delay buffers' grid
-const TSIM = 30.0;       // simulate this long
-const NSIM = Math.round(TSIM / H);
+const TMAX = 60.0;       // the longest window the page will draw
 const DRAW = 2200;       // points actually drawn
 
-const P = { lam: 1, lh: 1, kp: 1, ki: 1, gh: 1, th: 1 };
+// tw is the plotted window in seconds.  It is a view setting rather than a
+// design choice, so it sits below the divider, and every preset carries the
+// window its own point needs: a loop that is going unstable at 0.086 nepers
+// per second takes half a minute to make that obvious.
+const P = { lam: 1, lh: 1, kp: 1, ki: 1, gh: 1, th: 1, tw: 16 };
 
 const PRESETS = {
-  nodelay:  { lam: 0,    lh: 0,    kp: 1, ki: 1, gh: 1, th: 1 },
-  exact:    { lam: 1,    lh: 1,    kp: 1, ki: 1, gh: 1, th: 1 },
-  mismatch: { lam: 1,    lh: 0.6,  kp: 1, ki: 1, gh: 1, th: 1 },
-  unstable: { lam: 2,    lh: 2,    kp: 1, ki: 1, gh: 1, th: 1 }
+  nodelay:  { lam: 0,    lh: 0,    kp: 1, ki: 1, gh: 1, th: 1, tw: 12 },
+  exact:    { lam: 1,    lh: 1,    kp: 1, ki: 1, gh: 1, th: 1, tw: 16 },
+  mismatch: { lam: 1,    lh: 0.6,  kp: 1, ki: 1, gh: 1, th: 1, tw: 16 },
+  unstable: { lam: 2,    lh: 2,    kp: 1, ki: 1, gh: 1, th: 1, tw: 40 }
 };
 
 // ------------------------------------------------------------ frequency
@@ -362,7 +373,7 @@ function margins(p){
 // H = 1 ms against a loop bandwidth of about 1 rad/s that is far finer than
 // anything the page can show.
 function simulate(p){
-  const n = NSIM;
+  const n = Math.round(Math.min(TMAX, p.tw + 1) / H);
   const N  = Math.round(p.lam / H);          // true delay, in samples
   const Nh = Math.round(p.lh  / H);          // model delay, in samples
   const a  = Math.exp(-H),        b  = 1 - Math.exp(-H);
@@ -439,7 +450,8 @@ function peak(y){
 
 // ------------------------------------------------------------ the page
 const EL = id => document.getElementById(id);
-const RANGES = { lam: "r-lam", lh: "r-lh", kp: "r-kp", ki: "r-ki", gh: "r-gh", th: "r-th" };
+const RANGES = { lam: "r-lam", lh: "r-lh", kp: "r-kp", ki: "r-ki",
+                 gh: "r-gh", th: "r-th", tw: "r-tw" };
 
 function readSliders(){
   for (const k in RANGES) P[k] = parseFloat(EL(RANGES[k]).value);
@@ -454,6 +466,7 @@ function labels(){
   EL("v-ki").textContent  = P.ki.toFixed(2);
   EL("v-gh").textContent  = P.gh.toFixed(2);
   EL("v-th").textContent  = P.th.toFixed(2) + " s";
+  EL("v-tw").textContent  = P.tw.toFixed(0) + " s";
 }
 
 function render(){
@@ -461,8 +474,8 @@ function render(){
   const m = margins(P);
   const s = simulate(P);
 
-  const xmax = Math.min(TSIM, Math.max(12, 6 + 3.2 * P.lam));
-  const step = Math.max(1, Math.floor(NSIM * (xmax / TSIM) / DRAW));
+  const xmax = P.tw;
+  const step = Math.max(1, Math.floor(xmax / H / DRAW));
   const t = [], ya = [], ua = [], yb = [], ub = [];
   for (let i = 0; i * H <= xmax; i += step){
     t.push(i * H); ya.push(s.ya[i]); ua.push(s.ua[i]); yb.push(s.yb[i]); ub.push(s.ub[i]);
